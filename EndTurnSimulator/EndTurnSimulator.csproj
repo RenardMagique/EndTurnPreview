@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <GameDataDirectory Condition="$([MSBuild]::IsOSPlatform('Windows'))">data_sts2_windows_x86_64</GameDataDirectory>
+    <GameDataDirectory Condition="!$([MSBuild]::IsOSPlatform('Windows'))">data_sts2_linuxbsd_x86_64</GameDataDirectory>
+    <GameData Condition="'$(GameData)' == ''">$(STS2_GAME_DIR)/$(GameDataDirectory)</GameData>
+    <PathMap>$(MSBuildProjectDirectory)=/src/EndTurnSimulator</PathMap>
+    <DebugType>none</DebugType><DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../EndTurnDamagePreview/SimulationProtocol.cs" Link="SimulationProtocol.cs" />
+    <Reference Include="sts2"><HintPath>$(GameData)/sts2.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="GodotSharp"><HintPath>$(GameData)/GodotSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(GameData)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

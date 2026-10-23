@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GameDataDirectory Condition="$([MSBuild]::IsOSPlatform('Windows'))">data_sts2_windows_x86_64</GameDataDirectory>
+    <GameDataDirectory Condition="!$([MSBuild]::IsOSPlatform('Windows'))">data_sts2_linuxbsd_x86_64</GameDataDirectory>
+    <GameData Condition="'$(GameData)' == ''">$(STS2_GAME_DIR)/$(GameDataDirectory)</GameData>
+    <PathMap>$(MSBuildProjectDirectory)=/src/EndTurnDamagePreview</PathMap>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="sts2"><HintPath>$(GameData)/sts2.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="GodotSharp"><HintPath>$(GameData)/GodotSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(GameData)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="BaseLib"><HintPath>$(GameData)/../mods/BaseLib/BaseLib.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+  <Target Name="ValidateGameData" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(GameData)/sts2.dll')" Text="Set STS2_GAME_DIR to the game directory or pass -p:GameData=PATH_TO_GAME_DATA." />
+  </Target>
+</Project>
