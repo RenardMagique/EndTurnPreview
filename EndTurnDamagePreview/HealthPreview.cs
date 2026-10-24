@@ -46,7 +46,7 @@ internal sealed class HealthPreview
         hpLabel = bar.GetNode<MegaLabel>("%HpLabel");
         if (creature.IsPlayer)
         {
-            aura = new HealthBarAura(bar.HpBarContainer);
+            aura = new HealthBarAura(bar, bar.HpBarContainer);
         }
         nativeMiddlegroundLeft = middleground.Position.X;
         nativeMiddlegroundGap = foreground.OffsetRight - middleground.OffsetRight;
@@ -166,29 +166,35 @@ internal sealed class HealthPreview
     // are inherited directly from the game rather than reconstructed from screen coordinates.
     private sealed class HealthBarAura
     {
-        private static readonly Color EndTurnBlue = new("42697A");
+        private static readonly Color EndTurnBlue = new("5A92AA");
+        private readonly NHealthBar bar;
         private readonly Control container;
         private readonly Polygon2D[] layers;
         private Vector2 lastSize;
+        private Transform2D lastTransform;
 
-        internal HealthBarAura(Control container)
+        internal HealthBarAura(NHealthBar bar, Control container)
         {
+            this.bar = bar;
             this.container = container;
             layers =
             [
-                CreateLayer("EndTurnPreviewAuraOuter", 0.035f),
-                CreateLayer("EndTurnPreviewAuraMiddle", 0.055f),
-                CreateLayer("EndTurnPreviewAuraInner", 0.085f)
+                CreateLayer("EndTurnPreviewAuraOuter", 0.06f),
+                CreateLayer("EndTurnPreviewAuraMiddle", 0.09f),
+                CreateLayer("EndTurnPreviewAuraInner", 0.14f)
             ];
-            foreach (var layer in layers) container.AddChild(layer);
+            foreach (var layer in layers)
+            {
+                bar.AddChild(layer);
+                bar.MoveChild(layer, 0);
+            }
             Hide();
         }
 
         private static Polygon2D CreateLayer(string name, float alpha) => new()
         {
             Name = name,
-            Color = new Color(EndTurnBlue, alpha),
-            ZIndex = -100
+            Color = new Color(EndTurnBlue, alpha)
         };
 
         internal void Show()
@@ -205,17 +211,24 @@ internal sealed class HealthPreview
         private void UpdateGeometry()
         {
             Vector2 size = container.Size;
-            if (size.IsEqualApprox(lastSize)) return;
+            Transform2D relativeTransform = bar.GetGlobalTransformWithCanvas().AffineInverse()
+                * container.GetGlobalTransformWithCanvas();
+            if (size.IsEqualApprox(lastSize) && relativeTransform.IsEqualApprox(lastTransform)) return;
             lastSize = size;
+            lastTransform = relativeTransform;
 
             // The progressively larger polygons leave only a faint halo visible
             // around the native angled bar that is drawn above them.
-            layers[0].Polygon = CreateBevelledBar(size, 10f, 9f);
-            layers[1].Polygon = CreateBevelledBar(size, 7f, 7f);
-            layers[2].Polygon = CreateBevelledBar(size, 4f, 5f);
+            layers[0].Polygon = CreateBevelledBar(size, 12f, 10f, relativeTransform);
+            layers[1].Polygon = CreateBevelledBar(size, 8f, 8f, relativeTransform);
+            layers[2].Polygon = CreateBevelledBar(size, 4f, 6f, relativeTransform);
         }
 
-        private static Vector2[] CreateBevelledBar(Vector2 size, float padding, float bevel)
+        private static Vector2[] CreateBevelledBar(
+            Vector2 size,
+            float padding,
+            float bevel,
+            Transform2D transform)
         {
             float left = -padding;
             float top = -padding;
@@ -223,12 +236,12 @@ internal sealed class HealthPreview
             float bottom = size.Y + padding;
             return
             [
-                new(left + bevel, top),
-                new(right - bevel, top),
-                new(right, (top + bottom) * 0.5f),
-                new(right - bevel, bottom),
-                new(left + bevel, bottom),
-                new(left, (top + bottom) * 0.5f)
+                transform * new Vector2(left + bevel, top),
+                transform * new Vector2(right - bevel, top),
+                transform * new Vector2(right, (top + bottom) * 0.5f),
+                transform * new Vector2(right - bevel, bottom),
+                transform * new Vector2(left + bevel, bottom),
+                transform * new Vector2(left, (top + bottom) * 0.5f)
             ];
         }
     }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.1
+
+- Fixed the preview aura being rendered behind the combat scene.
+- Moved the aura into the health bar's local drawing order and kept it behind the native bar elements.
+- Slightly increased the aura brightness while retaining a subtle appearance.
+
 ## 0.14.0
 
 - Added a subtle blue aura behind the player's health bar while the forecast is visible.
