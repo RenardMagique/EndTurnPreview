@@ -19,6 +19,7 @@ internal sealed class HealthPreview
     private readonly MegaLabel blockLabel;
     private readonly Control blockOutline;
     private readonly MegaLabel hpLabel;
+    private readonly HealthBarAura? aura;
     private readonly float nativeMiddlegroundLeft;
     private readonly float nativeMiddlegroundGap;
     private bool blockPreviewApplied;
@@ -43,6 +44,10 @@ internal sealed class HealthPreview
         blockLabel = bar.GetNode<MegaLabel>("%BlockLabel");
         blockOutline = bar.GetNode<Control>("%BlockOutline");
         hpLabel = bar.GetNode<MegaLabel>("%HpLabel");
+        if (creature.IsPlayer)
+        {
+            aura = new HealthBarAura(bar.HpBarContainer);
+        }
         nativeMiddlegroundLeft = middleground.Position.X;
         nativeMiddlegroundGap = foreground.OffsetRight - middleground.OffsetRight;
         var timer = new Godot.Timer { Name = "EndTurnPreviewTimer", WaitTime = 0.02, Autostart = true };
@@ -57,6 +62,7 @@ internal sealed class HealthPreview
 
     private void RestoreNativeUi()
     {
+        aura?.Hide();
         if (!blockPreviewApplied && !hpAnimationActive) return;
         blockPreviewApplied = false;
         breakEffectShown = false;
@@ -130,6 +136,7 @@ internal sealed class HealthPreview
             }
             ApplyBlockPreview(forecast.BlockRemaining);
             AnimateHp(forecast.HpRemaining);
+            aura?.Show();
 
             // Reproduce an actual hit with the two layers already owned by NHealthBar:
             // red foreground = projected HP; orange middleground = HP about to be lost.
@@ -151,6 +158,78 @@ internal sealed class HealthPreview
         {
             Hide();
             if (!errorLogged) { GD.PrintErr(MainFile.ModId + ": " + ex); errorLogged = true; }
+        }
+    }
+
+    // A resolution-independent glow made from three soft, bevelled silhouettes.
+    // It lives inside the native HP container, so UI scaling and layout changes
+    // are inherited directly from the game rather than reconstructed from screen coordinates.
+    private sealed class HealthBarAura
+    {
+        private static readonly Color EndTurnBlue = new("42697A");
+        private readonly Control container;
+        private readonly Polygon2D[] layers;
+        private Vector2 lastSize;
+
+        internal HealthBarAura(Control container)
+        {
+            this.container = container;
+            layers =
+            [
+                CreateLayer("EndTurnPreviewAuraOuter", 0.035f),
+                CreateLayer("EndTurnPreviewAuraMiddle", 0.055f),
+                CreateLayer("EndTurnPreviewAuraInner", 0.085f)
+            ];
+            foreach (var layer in layers) container.AddChild(layer);
+            Hide();
+        }
+
+        private static Polygon2D CreateLayer(string name, float alpha) => new()
+        {
+            Name = name,
+            Color = new Color(EndTurnBlue, alpha),
+            ZIndex = -100
+        };
+
+        internal void Show()
+        {
+            UpdateGeometry();
+            foreach (var layer in layers) layer.Visible = true;
+        }
+
+        internal void Hide()
+        {
+            foreach (var layer in layers) layer.Visible = false;
+        }
+
+        private void UpdateGeometry()
+        {
+            Vector2 size = container.Size;
+            if (size.IsEqualApprox(lastSize)) return;
+            lastSize = size;
+
+            // The progressively larger polygons leave only a faint halo visible
+            // around the native angled bar that is drawn above them.
+            layers[0].Polygon = CreateBevelledBar(size, 10f, 9f);
+            layers[1].Polygon = CreateBevelledBar(size, 7f, 7f);
+            layers[2].Polygon = CreateBevelledBar(size, 4f, 5f);
+        }
+
+        private static Vector2[] CreateBevelledBar(Vector2 size, float padding, float bevel)
+        {
+            float left = -padding;
+            float top = -padding;
+            float right = size.X + padding;
+            float bottom = size.Y + padding;
+            return
+            [
+                new(left + bevel, top),
+                new(right - bevel, top),
+                new(right, (top + bottom) * 0.5f),
+                new(right - bevel, bottom),
+                new(left + bevel, bottom),
+                new(left, (top + bottom) * 0.5f)
+            ];
         }
     }
 

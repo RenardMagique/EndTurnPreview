@@ -12,6 +12,7 @@ End Turn Preview runs the game's own end-turn and enemy-action logic in an isola
 - Hover, always-visible and disabled automatic-display modes
 - Configurable press-and-hold keyboard or mouse shortcut
 - Native health-bar visuals that follow UI scaling and screen resolution
+- Subtle end-turn-blue aura identifying when the player health bar is showing a forecast
 - Player-pet support, including Osty survival and death previews
 - End-of-turn effects, enemy actions, Block expiration, healing, poison and combat-ending effects are simulated
 - No save-file modifications

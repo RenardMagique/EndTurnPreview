@@ -1,4 +1,4 @@
-# End Turn Preview v0.13.2
+# End Turn Preview v0.14.0
 
 Author: Renard Magique
 
@@ -12,6 +12,7 @@ End Turn Preview simulates the rest of the current turn and displays the result 
 - Offers hover, always-visible and disabled automatic-display modes under **Settings > Mod Configuration > EndTurnDamagePreview**.
 - Supports a configurable keyboard key or mouse button that reveals the cached preview while held.
 - Animates the native HP number from current HP to projected HP.
+- Adds a subtle end-turn-blue aura behind the player's health bar while the forecast is visible.
 - Uses the game's native red foreground and orange damage-trail layers. No custom rectangle is placed over the health bar.
 - Replaces the native Block number with projected Block and uses the native block-break effect when all Block will be lost.
 - Applies the same projected HP and Block display to player-owned pets, including Osty, and previews lethal damage even when the pet will be removed from combat.

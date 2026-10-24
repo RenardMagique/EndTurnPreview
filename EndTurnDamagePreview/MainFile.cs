@@ -17,6 +17,6 @@ public static class MainFile
         new Harmony(ModId).PatchAll(Assembly.GetExecutingAssembly());
         MegaCrit.Sts2.Core.Combat.CombatManager.Instance.StateTracker.CombatStateChanged += _ => SimulationClient.Invalidate();
         SimulationClient.StartWarm();
-        GD.Print(ModId + " v0.13.2 initialized");
+        GD.Print(ModId + " v0.14.0 initialized");
     }
 }

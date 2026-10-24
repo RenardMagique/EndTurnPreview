@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0
+
+- Added a subtle blue aura behind the player's health bar while the forecast is visible.
+- Attached the aura to the native health-bar container so it follows resolution, UI scale and layout changes.
+- Kept the aura hidden whenever the simulation is hidden, unavailable or unverified.
+
 ## 0.13.2
 
 - Changed Continuous background calculation to be disabled by default.
