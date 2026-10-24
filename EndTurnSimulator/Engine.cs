@@ -271,6 +271,16 @@ internal static class Engine
     internal static async Task SelfTest(string scenario)
     {
         Initialize();
+        if (scenario == "happy-flower-visual")
+        {
+            var flower = ModelDb.Relic<MegaCrit.Sts2.Core.Models.Relics.HappyFlower>().ToMutable();
+            AccessTools.Field(flower.GetType(), "_isActivating").SetValue(flower, true);
+            string scalars = JsonSerializer.Serialize(AccessTools.Method(typeof(SimulationProtocol), "ModelScalars").Invoke(null, [flower]));
+            if (scalars.Contains("_isActivating", StringComparison.Ordinal) || !scalars.Contains("_turnsSeen", StringComparison.Ordinal))
+                throw new InvalidOperationException("Happy Flower scalar filter rejected gameplay state or retained visual state");
+            Console.WriteLine("PASS happy-flower-visual: animation flag ignored, turn counter retained");
+            return;
+        }
         var state = RunState.CreateForTest(seed: "SIMULATIONTEST");
         LocalContext.NetId = 1;
         RunManager.Instance.SetUpTest(state, new NetSingleplayerGameService());

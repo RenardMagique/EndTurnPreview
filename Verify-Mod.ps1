@@ -27,7 +27,7 @@ if (!(Test-Path $worker)) { throw 'Could not find EndTurnSimulator.dll' }
 $diagnostic = & dotnet $worker $data --diagnostic --baselib
 if ($LASTEXITCODE -ne 0) { throw 'Diagnostic failed' }
 Write-Output "DIAGNOSTIC $diagnostic"
-foreach ($scenario in @('turns','burn','block-expiry','barricade','regen','poison','choice','lethal-burn','poison-victory','osty','osty-lethal')) {
+foreach ($scenario in @('turns','burn','block-expiry','barricade','regen','poison','choice','lethal-burn','poison-victory','osty','osty-lethal','happy-flower-visual')) {
     dotnet $worker $data --selftest "--case=$scenario"
     if ($LASTEXITCODE -ne 0) { throw "Test failed: $scenario" }
 }

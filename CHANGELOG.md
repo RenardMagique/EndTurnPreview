@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.1
+
+- Fixed false combat-state mismatches while Happy Flower's one-second activation animation is running.
+- Kept Happy Flower's saved turn counter in the strict state verification.
+- Added a regression test that distinguishes the visual activation flag from the gameplay counter.
+
 ## 0.13.0
 
 - Added a Continuous background calculation checkbox, enabled by default.

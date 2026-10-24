@@ -44,7 +44,7 @@ fi
 diagnostic="$(dotnet "$worker" "$data" --diagnostic --baselib)"
 echo "DIAGNOSTIC $diagnostic"
 
-for scenario in turns burn block-expiry barricade regen poison choice lethal-burn poison-victory osty osty-lethal; do
+for scenario in turns burn block-expiry barricade regen poison choice lethal-burn poison-victory osty osty-lethal happy-flower-visual; do
     dotnet "$worker" "$data" --selftest --case="$scenario"
 done
 

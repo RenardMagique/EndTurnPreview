@@ -173,8 +173,16 @@ public static class SimulationProtocol
         for (Type? type = model.GetType(); type != null && type != typeof(AbstractModel)
             && type != typeof(RelicModel) && type != typeof(PowerModel) && type != typeof(MonsterModel); type = type.BaseType)
             foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
-                if (field.FieldType.IsPrimitive || field.FieldType.IsEnum || field.FieldType == typeof(decimal) || field.FieldType == typeof(string))
+                if (!IsPresentationOnlyScalar(model, field)
+                    && (field.FieldType.IsPrimitive || field.FieldType.IsEnum || field.FieldType == typeof(decimal) || field.FieldType == typeof(string)))
                     values[type.FullName + "." + field.Name] = field.GetValue(model);
         return new { Id = model.Id.ToString(), Values = values };
+    }
+
+    private static bool IsPresentationOnlyScalar(AbstractModel model, FieldInfo field)
+    {
+        // Happy Flower keeps this true for one second solely to animate its counter.
+        // Replay speed changes that timing, but TurnsSeen remains the gameplay state.
+        return model is MegaCrit.Sts2.Core.Models.Relics.HappyFlower && field.Name == "_isActivating";
     }
 }
