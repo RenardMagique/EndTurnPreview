@@ -1,4 +1,4 @@
-# End Turn Preview v0.12.2
+# End Turn Preview v0.13.0
 
 Author: Renard Magique
 
@@ -6,7 +6,8 @@ End Turn Preview simulates the rest of the current turn and displays the result 
 
 ## Features
 
-- Recalculates the forecast after every stable combat-state change, whether the preview is visible or not.
+- Recalculates the forecast after every stable combat-state change by default, whether the preview is visible or not.
+- Can defer calculation until the preview is requested by the selected display mode or shortcut.
 - Displays the cached result immediately when the End Turn button is hovered.
 - Offers hover, always-visible and disabled automatic-display modes under **Settings > Mod Configuration > EndTurnDamagePreview**.
 - Supports a configurable keyboard key or mouse button that reveals the cached preview while held.
@@ -69,9 +70,10 @@ Open **Settings > Mod Configuration > EndTurnDamagePreview**.
 - **Simulation — Hover**: the preview appears while End Turn is hovered or focused. This is the default.
 - **Simulation — Always**: the preview remains visible throughout a valid player turn.
 - **Simulation — Disabled**: automatic display is disabled.
+- **Continuous background calculation**: enabled by default. When disabled, a new forecast is calculated only while the preview is requested by Hover, Always or the configured shortcut.
 - **Simulation shortcut**: select the button, then press a keyboard key or mouse button. Hold that input during combat to reveal the preview immediately. Press Backspace or Delete while assigning to clear it, or Escape to cancel assignment.
 
-The shortcut can reveal the preview in any of the three modes, including **Disabled**. Calculations continue in the background after stable combat-state changes, so changing the display mode or holding the shortcut only reveals the latest cached result.
+The shortcut can reveal the preview in any of the three modes, including **Disabled**. With continuous calculation enabled, display requests reveal the latest cached result. With it disabled, the request starts any calculation needed for the current state.
 
 ## Safety and compatibility
 

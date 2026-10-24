@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.0
+
+- Added a Continuous background calculation checkbox, enabled by default.
+- When disabled, forecasts are calculated only while requested by Hover, Always or the configured shortcut.
+- Kept the display mode and calculation policy independent so Disabled can still be used with a hold shortcut.
+
 ## 0.12.2
 
 - Prevented the isolated simulator from calling Decimillipede's presentation-only native texture loader.

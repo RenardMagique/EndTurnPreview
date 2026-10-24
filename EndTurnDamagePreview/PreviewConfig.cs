@@ -15,6 +15,7 @@ internal enum SimulationDisplay
 internal sealed class PreviewConfig : SimpleModConfig
 {
     public static SimulationDisplay Simulation { get; set; } = SimulationDisplay.Hover;
+    public static bool ContinuousCalculation { get; set; } = true;
 
     [ConfigHideInUI]
     public static string SimulationShortcut { get; set; } = "";
@@ -41,6 +42,15 @@ internal sealed class PreviewConfig : SimpleModConfig
             UniqueNameInOwner = true
         };
         optionContainer.AddChild(modeRow);
+
+        PropertyInfo continuousProperty = typeof(PreviewConfig).GetProperty(nameof(ContinuousCalculation))!;
+        Control continuousTickbox = CreateRawTickboxControl(continuousProperty);
+        var continuousLabel = ModConfig.CreateRawLabelControl("Continuous background calculation", 28);
+        var continuousRow = new NConfigOptionRow(ModPrefix, continuousProperty.Name, continuousLabel, continuousTickbox)
+        {
+            UniqueNameInOwner = true
+        };
+        optionContainer.AddChild(continuousRow);
 
         NConfigButton? shortcutButton = null;
         shortcutButton = CreateRawButtonControl(InputShortcut.DisplayName, () => InputShortcut.BeginCapture(this, shortcutButton!));

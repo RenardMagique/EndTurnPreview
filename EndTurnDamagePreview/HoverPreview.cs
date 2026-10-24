@@ -35,6 +35,7 @@ internal static class HoverPreview
         try
         {
             if (!CombatManager.Instance.IsInProgress || combat.CurrentSide != CombatSide.Player) return;
+            if (!PreviewConfig.ContinuousCalculation && !IsDisplayRequested()) return;
             var player = LocalContext.GetMe(combat);
             if (player == null || !player.Creature.IsAlive || CombatManager.Instance.IsPlayerReadyToEndTurn(player)) return;
             SimulationClient.Prepare(combat);
@@ -80,16 +81,17 @@ internal static class HoverPreview
         catch (InvalidOperationException) { return false; }
         bool isOwnedCreature = player != null && (ReferenceEquals(player.Creature, creature)
             || creature.IsPet && ReferenceEquals(creature.PetOwner, player));
-        bool automaticDisplay = PreviewConfig.Simulation switch
-        {
-            SimulationDisplay.Hover => hovered,
-            SimulationDisplay.Always => true,
-            _ => false
-        };
-        return (automaticDisplay || InputShortcut.IsPressed)
+        return IsDisplayRequested()
             && creature.IsAlive && isOwnedCreature
             && !CombatManager.Instance.IsPlayerReadyToEndTurn(player!);
     }
+
+    private static bool IsDisplayRequested() => InputShortcut.IsPressed || PreviewConfig.Simulation switch
+    {
+        SimulationDisplay.Hover => hovered,
+        SimulationDisplay.Always => true,
+        _ => false
+    };
 
     internal static void Register(HealthPreview bar)
     {
