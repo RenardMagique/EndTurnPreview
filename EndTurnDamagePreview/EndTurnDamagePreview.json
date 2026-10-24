@@ -3,7 +3,7 @@
   "name": "End Turn Preview",
   "author": "Renard Magique",
   "description": "Preview end-of-turn HP and Block for the player and pets on their native health bars. Supports Windows and native Linux.",
-  "version": "v0.12.1",
+  "version": "v0.12.2",
   "min_game_version": "0.107.1",
   "has_pck": false,
   "has_dll": true,

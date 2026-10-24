@@ -135,10 +135,11 @@ internal static class SimulationClient
         private readonly string data;
         private readonly bool baseLib;
         private readonly SemaphoreSlim requestGate = new(1, 1);
-        private readonly Task<bool> ready;
+        private Task<bool>? ready;
         private Process? process;
         private Task<string>? errorDrain;
         private string? startupError;
+        private string? lastWorkerError;
         private bool disposed;
 
         internal WorkerSession(string worker, string data, bool baseLib)
@@ -155,6 +156,7 @@ internal static class SimulationClient
             if (!File.Exists(worker)) return false;
             try
             {
+                startupError = null;
                 string dotnet = SimulationProtocol.ResolveDotnetHost();
                 var info = new ProcessStartInfo(dotnet)
                 {
@@ -185,25 +187,80 @@ internal static class SimulationClient
             await requestGate.WaitAsync();
             try
             {
-                if (disposed || !await ready || process == null || process.HasExited)
-                    return Unavailable(WithWorkerError("Simulator unavailable (.NET 9 required)"));
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                await process.StandardInput.WriteLineAsync(request.AsMemory(), timeout.Token);
-                string? json = await process.StandardOutput.ReadLineAsync(timeout.Token);
-                if (json == null) return Unavailable("Simulator stopped");
-                var response = JsonSerializer.Deserialize<SimulationServerResponse>(json);
-                return response?.Result ?? Unavailable("Invalid simulator response");
+                for (int attempt = 0; attempt < 2; attempt++)
+                {
+                    if (disposed || !await EnsureStarted())
+                        return Unavailable(WithWorkerError("Simulator could not start"));
+                    try
+                    {
+                        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                        await process!.StandardInput.WriteLineAsync(request.AsMemory(), timeout.Token);
+                        string? json = await process.StandardOutput.ReadLineAsync(timeout.Token);
+                        if (json != null)
+                        {
+                            var response = JsonSerializer.Deserialize<SimulationServerResponse>(json);
+                            return response?.Result ?? Unavailable("Invalid simulator response");
+                        }
+                        await Restart();
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        await Restart();
+                        return Unavailable("Simulation timed out; simulator restarted");
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidOperationException or ObjectDisposedException)
+                    {
+                        lastWorkerError = ex.GetType().Name + ": " + ex.Message;
+                        await Restart();
+                    }
+                }
+                return Unavailable(WithWorkerError("Simulator stopped twice while processing this state"));
             }
-            catch (OperationCanceledException) { return Unavailable("Simulation timed out"); }
             catch (Exception ex) { return Unavailable($"Simulator unavailable: {ex.GetType().Name}: {ex.Message}"); }
             finally { requestGate.Release(); }
         }
 
+        private async Task<bool> EnsureStarted()
+        {
+            if (ready != null)
+            {
+                bool started = await ready;
+                if (started && process is { HasExited: false }) return true;
+            }
+            await Restart();
+            return ready != null && await ready && process is { HasExited: false };
+        }
+
+        private async Task Restart()
+        {
+            await StopAndCaptureError();
+            if (!disposed) ready = Task.Run(Start);
+        }
+
+        private async Task StopAndCaptureError()
+        {
+            try { process?.StandardInput.Close(); } catch (Exception) { }
+            try { if (process is { HasExited: false }) process.Kill(entireProcessTree: true); } catch (Exception) { }
+            if (errorDrain != null)
+            {
+                try
+                {
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+                    string error = await errorDrain.WaitAsync(timeout.Token);
+                    if (!string.IsNullOrWhiteSpace(error)) lastWorkerError = error;
+                }
+                catch (Exception) { }
+            }
+            process?.Dispose();
+            process = null;
+            errorDrain = null;
+            ready = null;
+        }
+
         private string WithWorkerError(string status)
         {
-            string? details = startupError;
-            if (string.IsNullOrWhiteSpace(details) && errorDrain?.IsCompletedSuccessfully == true)
-                details = errorDrain.Result;
+            string? details = startupError ?? lastWorkerError;
+            if (string.IsNullOrWhiteSpace(details) && errorDrain?.IsCompletedSuccessfully == true) details = errorDrain.Result;
             if (string.IsNullOrWhiteSpace(details)) return status;
             details = details.Trim();
             if (details.Length > 2000) details = details[..2000] + "…";

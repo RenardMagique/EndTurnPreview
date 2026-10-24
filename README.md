@@ -1,4 +1,4 @@
-# End Turn Preview v0.12.1
+# End Turn Preview v0.12.2
 
 Author: Renard Magique
 

@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using System.Text.Json;
 using EndTurnDamagePreview;
+using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Commands;
@@ -58,6 +59,12 @@ internal static class Engine
         patches.Patch(AccessTools.Method(play, "MoveNext"), transpiler: new HarmonyMethod(typeof(Engine), nameof(ReplaceAnimationClock)));
         var end = AccessTools.Method(typeof(CombatManager), "EndCombatInternal").GetCustomAttribute<AsyncStateMachineAttribute>()!.StateMachineType;
         patches.Patch(AccessTools.Method(end, "MoveNext"), transpiler: new HarmonyMethod(typeof(Engine), nameof(RemoveTooltipCleanup)));
+        // DecimillipedeSegment.ReattachMove performs a presentation-only texture load even
+        // in TestMode. A standalone worker has no native Godot ResourceLoader, so replace
+        // that one load while preserving the move's gameplay effects.
+        var reattach = AccessTools.Method("MegaCrit.Sts2.Core.Models.Monsters.DecimillipedeSegment:ReattachMove")
+            .GetCustomAttribute<AsyncStateMachineAttribute>()!.StateMachineType;
+        patches.Patch(AccessTools.Method(reattach, "MoveNext"), transpiler: new HarmonyMethod(typeof(Engine), nameof(RemoveReattachTextureLoad)));
         Patch("MegaCrit.Sts2.Core.GameActions.Multiplayer.PlayerChoiceSynchronizer:ReserveChoiceId", nameof(ObserveChoice));
         if (baseLib)
         {
@@ -107,7 +114,7 @@ internal static class Engine
         return list;
     }
 
-    private static ulong AnimationTicks() => (ulong)Environment.TickCount64;
+    private static ulong AnimationTicks() => (ulong)System.Environment.TickCount64;
     private static IEnumerable<CodeInstruction> RemoveTooltipCleanup(IEnumerable<CodeInstruction> instructions)
     {
         foreach (var instruction in instructions)
@@ -125,6 +132,23 @@ internal static class Engine
                 instruction.operand = AccessTools.Method(typeof(Engine), nameof(AnimationTicks));
             yield return instruction;
         }
+    }
+
+    private static Texture2D? SkipTextureLoad(string path, string? typeHint, ResourceLoader.CacheMode cacheMode) => null;
+    private static IEnumerable<CodeInstruction> RemoveReattachTextureLoad(IEnumerable<CodeInstruction> instructions)
+    {
+        bool replaced = false;
+        foreach (var instruction in instructions)
+        {
+            if (instruction.operand is MethodInfo method && method.DeclaringType == typeof(ResourceLoader)
+                && method.Name == nameof(ResourceLoader.Load) && method.ReturnType == typeof(Texture2D))
+            {
+                instruction.operand = AccessTools.Method(typeof(Engine), nameof(SkipTextureLoad));
+                replaced = true;
+            }
+            yield return instruction;
+        }
+        if (!replaced) throw new InvalidOperationException("Unsupported Decimillipede reattach layout");
     }
 
     internal static async Task<SimulationResult> Simulate(string json, string data)
@@ -183,8 +207,11 @@ internal static class Engine
             await run.ActionExecutor.FinishedExecutingActions();
             while (CombatManager.Instance.IsStarting || CombatManager.Instance.EndingPlayerTurnPhaseOne || CombatManager.Instance.EndingPlayerTurnPhaseTwo) await Task.Delay(1);
             var combat = CombatManager.Instance.DebugOnlyGetState();
-            if (engineError || combat == null || SimulationProtocol.Stamp(state, combat) != request.Baseline)
-                return Unknown("Combat state mismatch");
+            if (engineError) return Unknown("Replay produced an engine error");
+            if (combat == null) return Unknown("Replay did not restore combat");
+            string actual = SimulationProtocol.Stamp(state, combat);
+            if (actual != request.Baseline)
+                return Unknown("Combat state mismatch: " + SimulationProtocol.DescribeStampMismatch(request.Baseline, actual));
             return await Predict(state);
         }
         finally

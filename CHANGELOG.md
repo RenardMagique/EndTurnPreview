@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.2
+
+- Prevented the isolated simulator from calling Decimillipede's presentation-only native texture loader.
+- Added automatic simulator restart and one retry after an unexpected worker exit.
+- Replaced the misleading generic .NET error with the actual captured worker failure.
+- Added section fingerprints to state-mismatch diagnostics to identify whether the network state, round, side, moves or model fields diverged.
+- Avoided local-player lookups after combat has already begun shutting down.
+
 ## 0.12.1
 
 - Added rate-limited diagnostics when a forecast cannot be verified.

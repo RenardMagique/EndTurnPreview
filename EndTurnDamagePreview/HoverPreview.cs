@@ -34,9 +34,9 @@ internal static class HoverPreview
         if (owner != button || combat == null) return;
         try
         {
+            if (!CombatManager.Instance.IsInProgress || combat.CurrentSide != CombatSide.Player) return;
             var player = LocalContext.GetMe(combat);
-            if (!CombatManager.Instance.IsInProgress || combat.CurrentSide != CombatSide.Player
-                || player == null || !player.Creature.IsAlive || CombatManager.Instance.IsPlayerReadyToEndTurn(player)) return;
+            if (player == null || !player.Creature.IsAlive || CombatManager.Instance.IsPlayerReadyToEndTurn(player)) return;
             SimulationClient.Prepare(combat);
             lastPrepareError = null;
         }
@@ -72,7 +72,12 @@ internal static class HoverPreview
     internal static bool TryGetCombat(Creature creature, out CombatState state)
     {
         state = combat!;
-        var player = combat == null ? null : LocalContext.GetMe(combat);
+        if (combat == null || !GodotObject.IsInstanceValid(button) || !button!.IsVisibleInTree()
+            || !button.IsEnabled || !CombatManager.Instance.IsInProgress || combat.CurrentSide != CombatSide.Player)
+            return false;
+        MegaCrit.Sts2.Core.Entities.Players.Player? player;
+        try { player = LocalContext.GetMe(combat); }
+        catch (InvalidOperationException) { return false; }
         bool isOwnedCreature = player != null && (ReferenceEquals(player.Creature, creature)
             || creature.IsPet && ReferenceEquals(creature.PetOwner, player));
         bool automaticDisplay = PreviewConfig.Simulation switch
@@ -81,9 +86,7 @@ internal static class HoverPreview
             SimulationDisplay.Always => true,
             _ => false
         };
-        return (automaticDisplay || InputShortcut.IsPressed) && combat != null && GodotObject.IsInstanceValid(button)
-            && button!.IsVisibleInTree() && button.IsEnabled
-            && CombatManager.Instance.IsInProgress && combat.CurrentSide == CombatSide.Player
+        return (automaticDisplay || InputShortcut.IsPressed)
             && creature.IsAlive && isOwnedCreature
             && !CombatManager.Instance.IsPlayerReadyToEndTurn(player!);
     }
