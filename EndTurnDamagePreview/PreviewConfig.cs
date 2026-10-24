@@ -15,7 +15,7 @@ internal enum SimulationDisplay
 internal sealed class PreviewConfig : SimpleModConfig
 {
     public static SimulationDisplay Simulation { get; set; } = SimulationDisplay.Hover;
-    public static bool ContinuousCalculation { get; set; } = true;
+    public static bool ContinuousCalculation { get; set; } = false;
 
     [ConfigHideInUI]
     public static string SimulationShortcut { get; set; } = "";

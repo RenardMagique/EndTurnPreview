@@ -7,7 +7,7 @@ End Turn Preview runs the game's own end-turn and enemy-action logic in an isola
 ## Main features
 
 - Near-instant forecasts after the initial background warm-up
-- Optional hidden recalculation after every stable combat-state change, enabled by default
+- Optional hidden recalculation after every stable combat-state change, disabled by default
 - Hover-only display by default
 - Hover, always-visible and disabled automatic-display modes
 - Configurable press-and-hold keyboard or mouse shortcut
@@ -35,7 +35,7 @@ Linux users must use the native Linux build of the game and have `Microsoft.NETC
 
 ## Configuration
 
-Open **Settings > Mod Configuration > EndTurnDamagePreview**. Choose **Hover**, **Always** or **Disabled** under **Simulation**. The **Continuous background calculation** checkbox is enabled by default; disable it to calculate only when the preview is requested. Select **Simulation shortcut**, then press a keyboard key or mouse button; hold that input during combat to reveal the preview in any mode.
+Open **Settings > Mod Configuration > EndTurnDamagePreview**. Choose **Hover**, **Always** or **Disabled** under **Simulation**. The **Continuous background calculation** checkbox is disabled by default; enable it to recalculate after every stable combat-state change. Select **Simulation shortcut**, then press a keyboard key or mouse button; hold that input during combat to reveal the preview in any mode.
 
 ## Compatibility
 

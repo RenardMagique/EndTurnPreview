@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.2
+
+- Changed Continuous background calculation to be disabled by default.
+- Existing saved preferences remain unchanged.
+
 ## 0.13.1
 
 - Fixed false combat-state mismatches while Happy Flower's one-second activation animation is running.
