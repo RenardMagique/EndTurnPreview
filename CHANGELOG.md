@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.2
+
+- Fixed an intermittent missing preview when the End Turn button acquired focus before the combat binding completed.
+- Synchronized the native button-focus state on every preview tick, so leaving and re-entering the button is no longer required.
+- Added diagnostics for simulations that were never started, faulted, canceled or remained pending for more than one second.
+
 ## 0.14.1
 
 - Fixed the preview aura being rendered behind the combat scene.

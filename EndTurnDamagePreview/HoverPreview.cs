@@ -4,6 +4,7 @@ using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Nodes.Combat;
+using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 
 namespace EndTurnDamagePreview;
 
@@ -35,6 +36,11 @@ internal static class HoverPreview
         try
         {
             if (!CombatManager.Instance.IsInProgress || combat.CurrentSide != CombatSide.Player) return;
+            // Focus can be acquired while the button is animating in, before Initialize binds
+            // this combat. In that order the Harmony focus callback is intentionally ignored.
+            // Synchronizing the native state prevents the preview from remaining unavailable
+            // until the pointer leaves and re-enters the button.
+            hovered = owner.Get(NClickableControl.PropertyName.IsFocused).AsBool();
             if (!PreviewConfig.ContinuousCalculation && !IsDisplayRequested()) return;
             var player = LocalContext.GetMe(combat);
             if (player == null || !player.Creature.IsAlive || CombatManager.Instance.IsPlayerReadyToEndTurn(player)) return;

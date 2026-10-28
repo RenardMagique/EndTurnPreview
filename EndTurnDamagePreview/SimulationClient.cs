@@ -21,6 +21,8 @@ internal static class SimulationClient
     private static WorkerSession? session;
     private static string diagnosticContext = "combat state unavailable";
     private static string? lastDiagnosticKey;
+    private static long computationStartedAt;
+    private static bool slowComputationLogged;
 
     internal static void StartWarm()
     {
@@ -36,6 +38,8 @@ internal static class SimulationClient
         computation = null;
         dirty = true;
         pending = Forecast.Pending("Calculating…");
+        computationStartedAt = 0;
+        slowComputationLogged = false;
     }
 
     internal static void Reset() => Invalidate();
@@ -51,7 +55,29 @@ internal static class SimulationClient
     internal static Forecast Get(Creature creature)
     {
         if (dirty) return pending;
-        if (computation?.IsCompletedSuccessfully != true) return pending;
+        if (computation == null)
+        {
+            LogFailure("Simulation was not started");
+            return pending;
+        }
+        if (computation.IsFaulted || computation.IsCanceled)
+        {
+            string failure = computation.Exception?.GetBaseException().Message
+                ?? (computation.IsCanceled ? "Simulation task was canceled" : "Simulation task failed");
+            LogFailure(failure);
+            Invalidate();
+            return pending;
+        }
+        if (!computation.IsCompletedSuccessfully)
+        {
+            if (!slowComputationLogged && computationStartedAt != 0
+                && Stopwatch.GetElapsedTime(computationStartedAt) >= TimeSpan.FromSeconds(1))
+            {
+                slowComputationLogged = true;
+                LogFailure("Simulation still pending after 1 second");
+            }
+            return pending;
+        }
         var result = computation.Result;
         LogResult(result);
         return Forecast.FromResult(result, creature);
@@ -92,6 +118,8 @@ internal static class SimulationClient
         computation = session == null
             ? Task.FromResult(Unavailable("Simulator unavailable"))
             : session.Simulate(JsonSerializer.Serialize(request));
+        computationStartedAt = Stopwatch.GetTimestamp();
+        slowComputationLogged = false;
         return Forecast.Pending("Calculating…");
     }
 
