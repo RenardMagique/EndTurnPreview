@@ -84,6 +84,13 @@ Multiplayer and mod combinations other than BaseLib are rejected. The forecast i
 
 When a forecast cannot be verified, the mod writes one rate-limited diagnostic for each distinct combat state and reason to the game's `godot.log`. The line includes the round, side, player HP and Block, and enemy models, moves and HP. Worker startup failures and exceptions include their available error details.
 
+To report a missing or incorrect forecast, reproduce the problem and close the game without starting it again. Attach the complete `godot.log`, the mod version, game version, BaseLib version, enabled-mod list and a short description to a Nexus bug report or a [GitHub issue](https://github.com/RenardMagique/EndTurnPreview/issues). Useful entries contain `EndTurnDamagePreview: forecast unavailable`.
+
+- Windows: `%APPDATA%\SlayTheSpire2\logs\godot.log`
+- Native Linux: `~/.local/share/SlayTheSpire2/logs/godot.log`
+
+The complete file is more useful than a single copied line because nearby messages provide startup and combat context. Logs may contain local paths or system information; review the file before sharing it publicly.
+
 ## Uninstallation
 
 Delete `mods/EndTurnDamagePreview`, then restart the game. Save files are not modified by this mod.
