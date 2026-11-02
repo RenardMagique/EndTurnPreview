@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.Loader;
 using System.Text.Json;
+using EndTurnDamagePreview;
 
 namespace EndTurnSimulator;
 
@@ -11,21 +12,27 @@ internal static class Program
     {
         if (args.Length < 1 || !Directory.Exists(args[0])) return 2;
         string data = Path.GetFullPath(args[0]);
+        SimulationMod[] mods = ReadMods(args);
+        string[] modDirectories = mods.Select(mod => mod.AssemblyPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path)).Select(Path.GetDirectoryName)
+            .Where(path => path != null).Distinct(StringComparer.OrdinalIgnoreCase).Cast<string>().ToArray();
         AssemblyLoadContext.Default.Resolving += (_, name) =>
         {
             var path = Path.Combine(data, name.Name + ".dll");
-            return File.Exists(path) ? AssemblyLoadContext.Default.LoadFromAssemblyPath(path) : null;
+            if (File.Exists(path)) return AssemblyLoadContext.Default.LoadFromAssemblyPath(path);
+            path = modDirectories.Select(directory => Path.Combine(directory, name.Name + ".dll")).FirstOrDefault(File.Exists);
+            return path == null ? null : AssemblyLoadContext.Default.LoadFromAssemblyPath(path);
         };
         try
         {
             Pump.Run(async () =>
             {
-                if (args.Contains("--diagnostic")) Console.WriteLine(Engine.Diagnostic(data, args.Contains("--baselib")));
+                if (args.Contains("--diagnostic")) Console.WriteLine(Engine.Diagnostic(data, args.Contains("--baselib"), mods));
                 else if (args.Contains("--selftest")) await Engine.SelfTest(args.FirstOrDefault(a => a.StartsWith("--case="))?[7..] ?? "turns");
-                else if (args.Contains("--fixture")) Console.WriteLine(await Engine.Fixture(data, args.Contains("--baselib")));
+                else if (args.Contains("--fixture")) Console.WriteLine(await Engine.Fixture(data, args.Contains("--baselib"), mods: mods));
                 else if (args.Contains("--server"))
                 {
-                    await Engine.Warm(data, args.Contains("--baselib"));
+                    await Engine.Warm(data, args.Contains("--baselib"), mods);
                     Console.WriteLine("READY");
                     string? input;
                     while ((input = Console.ReadLine()) != null)
@@ -46,6 +53,13 @@ internal static class Program
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
+    }
+
+    private static SimulationMod[] ReadMods(string[] args)
+    {
+        string? encoded = args.FirstOrDefault(argument => argument.StartsWith("--mods=", StringComparison.Ordinal))?[7..];
+        if (string.IsNullOrWhiteSpace(encoded)) return [];
+        return JsonSerializer.Deserialize<SimulationMod[]>(Convert.FromBase64String(encoded)) ?? [];
     }
 
     private sealed record ServerResponse(EndTurnDamagePreview.SimulationResult Result, long ElapsedMs);

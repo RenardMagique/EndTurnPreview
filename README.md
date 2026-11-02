@@ -1,8 +1,8 @@
-# End Turn Preview v0.14.2
+# End Turn Preview v0.15.0
 
 Author: Renard Magique
 
-End Turn Preview simulates the rest of the current turn and displays the result directly on the native health bars of the player and their pets. It targets Slay the Spire 2 v0.107.1 with BaseLib 3.3.8. Windows x64 is tested; native Linux x64 remains experimental.
+End Turn Preview simulates the rest of the current turn and displays the result directly on the native health bars of the player and their pets. It requires Slay the Spire 2 v0.107.1 or newer with BaseLib 3.3.8. Windows x64 is tested; native Linux x64 remains experimental.
 
 ## Features
 
@@ -18,6 +18,8 @@ End Turn Preview simulates the rest of the current turn and displays the result 
 - Applies the same projected HP and Block display to player-owned pets, including Osty, and previews lethal damage even when the pet will be removed from combat.
 - Runs the game engine's end-turn and enemy-action routines in an isolated worker process instead of estimating damage from intent icons.
 - Refuses to display a numeric forecast when the state cannot be verified safely.
+- Accepts newer game builds when the live game and worker use matching engine and model identities.
+- Loads additional mod assemblies and initializes mods that declare gameplay changes in the isolated worker instead of rejecting every mod combination.
 
 The forecast ends at the beginning of the next playable player turn, after start-of-turn effects, or when combat ends. Healing can offset damage, and normal Block expiration is included.
 
@@ -27,7 +29,7 @@ The mod does not use screen coordinates or assume a specific viewport size. It m
 
 ## Requirements
 
-- Slay the Spire 2 v0.107.1
+- Slay the Spire 2 v0.107.1 or newer
 - BaseLib 3.3.8 or newer
 - Windows x64
 - Native Linux x64 is experimental and not yet certified
@@ -80,9 +82,11 @@ The shortcut can reveal the preview in any of the three modes, including **Disab
 
 The simulator receives immutable replay bytes and runs with the game's in-memory test save backend. It does not load, replace or write normal save files. Game libraries are loaded from the local installation and are not redistributed.
 
-Multiplayer and mod combinations other than BaseLib are rejected. The forecast is also disabled on unverified game builds, while actions are still resolving, or when the simulation requires a future player choice.
+Multiplayer remains unsupported because the current result protocol represents one player. Additional mods are no longer rejected in advance: their managed assemblies are loaded in the isolated worker, and mods declaring gameplay changes are initialized there on a best-effort basis. A mod that depends on unavailable presentation or native Godot services may still make its forecast unavailable, but it will not disable End Turn Preview merely by being installed.
 
-When a forecast cannot be verified, the mod writes one rate-limited diagnostic for each distinct combat state and reason to the game's `godot.log`. The line includes the round, side, player HP and Block, and enemy models, moves and HP. Worker startup failures and exceptions include their available error details.
+There is no closed game-version allowlist. The worker instead requires its engine module, model hash and loaded mod identities to match the live game for every request. The forecast is also withheld while actions are still resolving or when the simulation requires a future player choice.
+
+At startup and whenever the loaded mod set changes, the mod logs a compatibility line containing its version, runtime platform, game assembly version, engine module identifier, model hash and loaded mod identities. When a forecast cannot be verified, it writes one rate-limited diagnostic for each distinct combat state and reason. The line also includes the round, side, player HP and Block, and enemy models, moves and HP. Worker startup failures, missing assemblies, module mismatches and third-party initializer exceptions include their available error details.
 
 To report a missing or incorrect forecast, reproduce the problem and close the game without starting it again. Attach the complete `godot.log`, the mod version, game version, BaseLib version, enabled-mod list and a short description to a Nexus bug report or a [GitHub issue](https://github.com/RenardMagique/EndTurnPreview/issues). Useful entries contain `EndTurnDamagePreview: forecast unavailable`.
 
@@ -110,7 +114,7 @@ chmod +x ./Verify-Mod.sh
 ./Verify-Mod.sh "PATH_TO_SLAY_THE_SPIRE_2"
 ```
 
-The verifier prints a diagnostic containing the runtime platform, resolved game-data path, game-module identifier, model hash and detected BaseLib assembly version. A Linux build with a different game-module identifier remains disabled until that exact build passes the compatibility tests and is added to the closed allowlist.
+The verifier prints a diagnostic containing the runtime platform, resolved game-data path, game-module identifier, model hash, compatibility policy, loaded mods and detected BaseLib assembly version. A different Linux module is accepted when the live game and worker use that same module and the verification suite succeeds.
 
 See `LINUX_TESTING.md` for the complete native Linux release-candidate checklist and the files to return with a test report.
 

@@ -10,23 +10,16 @@ using MegaCrit.Sts2.Core.Models;
 
 namespace EndTurnDamagePreview;
 
-public sealed record SimulationRequest(string Replay, string Baseline, uint ModelHash, string GameModule, bool BaseLib);
+public sealed record SimulationMod(string Id, string Version, bool AffectsGameplay, string? AssemblyPath, string? ModuleVersionId);
+public sealed record SimulationRequest(string Replay, string Baseline, uint ModelHash, string GameModule, bool BaseLib, SimulationMod[] Mods);
 public sealed record SimulatedPetState(int Index, string ModelId, int Hp, int Block, bool Alive);
 public sealed record SimulationResult(bool Verified, int Hp, int Block, SimulatedPetState[] Pets, string Status);
 public sealed record SimulationServerResponse(SimulationResult Result, long ElapsedMs);
 
 public static class SimulationProtocol
 {
-    // Fail closed after game updates until the engine compatibility tests are rerun.
-    private static readonly HashSet<string> supportedGameModules = new(StringComparer.OrdinalIgnoreCase)
-    {
-        // Slay the Spire 2 v0.107.1, validated on Windows x64. The Linux build is
-        // accepted only when it ships this identical managed game module.
-        "97f10687-c306-4798-ab75-8b9f23f34dfb"
-    };
-
-    public static bool SupportsGameModule(string moduleVersionId) => supportedGameModules.Contains(moduleVersionId);
-    public static IReadOnlyCollection<string> SupportedGameModules => supportedGameModules;
+    public static string ModSignature(IEnumerable<SimulationMod> mods) => string.Join("|", mods.Select(mod =>
+        $"{mod.Id}@{mod.Version}:{mod.AffectsGameplay}:{mod.ModuleVersionId ?? "no-dll"}"));
 
     public static string ResolveDotnetHost()
     {

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Godot;
 using HarmonyLib;
@@ -23,14 +24,54 @@ internal static class SimulationClient
     private static string? lastDiagnosticKey;
     private static long computationStartedAt;
     private static bool slowComputationLogged;
+    private static SimulationMod[] loadedMods = [];
+    private static string compatibilityContext = "compatibility state unavailable";
+    private static string workerPath = "";
+    private static string dataPath = "";
 
     internal static void StartWarm()
     {
-        string data = Path.GetDirectoryName(typeof(CombatState).Assembly.Location)!;
-        string worker = Path.Combine(Path.GetDirectoryName(typeof(MainFile).Assembly.Location)!, "simulator", "EndTurnSimulator.dll");
-        bool baseLib = ModManager.GetLoadedMods().Any(m => m.manifest?.id == "BaseLib");
-        session = new WorkerSession(worker, data, baseLib);
+        dataPath = Path.GetDirectoryName(typeof(CombatState).Assembly.Location)!;
+        workerPath = Path.Combine(Path.GetDirectoryName(typeof(MainFile).Assembly.Location)!, "simulator", "EndTurnSimulator.dll");
+        RefreshSession(force: true);
         AppDomain.CurrentDomain.ProcessExit += (_, _) => session?.Dispose();
+    }
+
+    private static void RefreshSession(bool force = false)
+    {
+        var currentMods = ModManager.GetLoadedMods().Where(mod => mod.manifest?.id != MainFile.ModId).Select(DescribeMod).ToArray();
+        if (!force && SimulationProtocol.ModSignature(currentMods) == SimulationProtocol.ModSignature(loadedMods)) return;
+        session?.Dispose();
+        loadedMods = currentMods;
+        bool baseLib = loadedMods.Any(mod => mod.Id == "BaseLib");
+        compatibilityContext = $"runtime={RuntimeInformation.RuntimeIdentifier}, "
+            + $"gameAssembly={typeof(CombatState).Assembly.GetName().Version}, "
+            + $"gameModule={typeof(CombatState).Module.ModuleVersionId}, models={ModelIdSerializationCache.Hash}, "
+            + $"mods=[{SimulationProtocol.ModSignature(loadedMods)}]";
+        GD.Print($"{MainFile.ModId} {MainFile.Version} compatibility: {compatibilityContext}");
+        session = new WorkerSession(workerPath, dataPath, baseLib, loadedMods);
+        Invalidate();
+    }
+
+    private static SimulationMod DescribeMod(Mod mod)
+    {
+        string id = mod.manifest?.id ?? mod.assembly?.GetName().Name ?? "unknown";
+        string version = mod.manifest?.version ?? mod.assembly?.GetName().Version?.ToString() ?? "unknown";
+        string? path = null;
+        string? module = null;
+        try
+        {
+            if (mod.assembly != null)
+            {
+                path = mod.assembly.Location;
+                module = mod.assembly.ManifestModule.ModuleVersionId.ToString();
+            }
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"{MainFile.ModId}: could not inspect mod assembly {id}: {ex.GetType().Name}: {ex.Message}");
+        }
+        return new(id, version, mod.manifest?.affectsGameplay ?? false, path, module);
     }
 
     internal static void Invalidate()
@@ -47,6 +88,7 @@ internal static class SimulationClient
     // The timer invokes this for every settled combat state, independently of hover.
     internal static void Prepare(CombatState combat)
     {
+        RefreshSession();
         if (!dirty) return;
         pending = PrepareCore(combat);
     }
@@ -87,11 +129,6 @@ internal static class SimulationClient
     {
         var run = RunManager.Instance;
         diagnosticContext = Describe(combat);
-        if (!SimulationProtocol.SupportsGameModule(typeof(CombatState).Module.ModuleVersionId.ToString()))
-        {
-            dirty = false;
-            return DiagnosticPending("Unsupported game version");
-        }
         if (combat.Players.Count != 1)
         {
             dirty = false;
@@ -100,13 +137,6 @@ internal static class SimulationClient
         if (run.ActionExecutor.IsRunning || CombatManager.Instance.IsStarting)
             return Forecast.Pending("Waiting for action…");
 
-        var mods = ModManager.GetLoadedMods().ToArray();
-        if (mods.Any(m => m.manifest?.id is not ("BaseLib" or MainFile.ModId)))
-        {
-            dirty = false;
-            return DiagnosticPending("Unsupported mod combination");
-        }
-
         string stamp = SimulationProtocol.Stamp(combat.RunState, combat);
         dirty = false;
         if (replayField.GetValue(run.CombatReplayWriter) is not CombatReplay replay)
@@ -114,7 +144,7 @@ internal static class SimulationClient
 
         // Only immutable bytes cross the process boundary; the live combat is never mutated.
         var request = new SimulationRequest(SimulationProtocol.Pack(replay), stamp, ModelIdSerializationCache.Hash,
-            typeof(CombatState).Module.ModuleVersionId.ToString(), mods.Any(m => m.manifest?.id == "BaseLib"));
+            typeof(CombatState).Module.ModuleVersionId.ToString(), loadedMods.Any(mod => mod.Id == "BaseLib"), loadedMods);
         computation = session == null
             ? Task.FromResult(Unavailable("Simulator unavailable"))
             : session.Simulate(JsonSerializer.Serialize(request));
@@ -154,7 +184,8 @@ internal static class SimulationClient
         string enemies = string.Join(", ", combat.Enemies.Select(enemy =>
             $"{enemy.Monster?.Id.ToString() ?? "unknown"}:{enemy.Monster?.NextMove.Id ?? "unknown"}:"
             + $"{enemy.CurrentHp}/{enemy.MaxHp} HP"));
-        return $"round={combat.RoundNumber}, side={combat.CurrentSide}, players=[{players}], enemies=[{enemies}]";
+        return $"{compatibilityContext}, round={combat.RoundNumber}, side={combat.CurrentSide}, "
+            + $"players=[{players}], enemies=[{enemies}]";
     }
 
     private sealed class WorkerSession : IDisposable
@@ -162,6 +193,7 @@ internal static class SimulationClient
         private readonly string worker;
         private readonly string data;
         private readonly bool baseLib;
+        private readonly SimulationMod[] mods;
         private readonly SemaphoreSlim requestGate = new(1, 1);
         private Task<bool>? ready;
         private Process? process;
@@ -170,11 +202,12 @@ internal static class SimulationClient
         private string? lastWorkerError;
         private bool disposed;
 
-        internal WorkerSession(string worker, string data, bool baseLib)
+        internal WorkerSession(string worker, string data, bool baseLib, SimulationMod[] mods)
         {
             this.worker = worker;
             this.data = data;
             this.baseLib = baseLib;
+            this.mods = mods;
             // Model loading and JIT priming happen while the game is still opening.
             ready = Task.Run(Start);
         }
@@ -198,6 +231,7 @@ internal static class SimulationClient
                 info.ArgumentList.Add(data);
                 info.ArgumentList.Add("--server");
                 if (baseLib) info.ArgumentList.Add("--baselib");
+                info.ArgumentList.Add("--mods=" + Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(mods)));
                 process = Process.Start(info);
                 if (process == null) return false;
                 errorDrain = process.StandardError.ReadToEndAsync();
@@ -312,7 +346,6 @@ internal static class SimulationClient
             try { process?.StandardInput.Close(); } catch (Exception) { }
             try { if (process is { HasExited: false }) process.Kill(entireProcessTree: true); } catch (Exception) { }
             process?.Dispose();
-            requestGate.Dispose();
             _ = errorDrain;
         }
     }

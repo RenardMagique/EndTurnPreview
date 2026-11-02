@@ -43,13 +43,13 @@ This is not an estimate based on intent icons. The calculation runs in an isolat
 
 ## Requirements and compatibility
 
-- Slay the Spire 2 **v0.107.1**
+- Slay the Spire 2 **v0.107.1 or newer**
 - BaseLib **3.3.8+**
 - **.NET 9 Runtime** (`Microsoft.NETCore.App 9.x`)
 - Windows x64, fully tested
 - Native Linux x64, experimental
 
-The same archive is used on Windows and native Linux. Proton is not officially supported. Unknown game builds, multiplayer and combinations with additional gameplay mods are deliberately rejected until they can be verified safely.
+The same archive is used on Windows and native Linux. Proton is not officially supported. Newer game builds are accepted when the live game and isolated worker use matching engine and model identities. Additional mods are loaded in the worker on a best-effort basis instead of being rejected automatically; mods that require unavailable presentation services may still prevent a forecast. Multiplayer remains unsupported.
 
 Some situations require a future player choice. In those cases, showing no forecast is intentional because there is no single reliable outcome to display.
 

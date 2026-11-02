@@ -86,10 +86,18 @@ if [[ "$result" == *'"Verified":true'* ]]; then
 fi
 echo "PASS divergent baseline rejected"
 
-unsupported="$(sed -E 's/"GameModule":"[^"]*"/"GameModule":"unsupported-build"/' <<<"$fixture")"
-result="$(printf '%s\n' "$unsupported" | dotnet "$worker" "$data")"
-if [[ "$result" == *'"Verified":true'* ]]; then
-    echo "Unsupported version was accepted" >&2
+additional_mod="$(sed 's/"Mods":\[\]/"Mods":[{"Id":"CompatibilityTest","Version":"1.0.0","AffectsGameplay":false,"AssemblyPath":null,"ModuleVersionId":null}]/' <<<"$fixture")"
+result="$(printf '%s\n' "$additional_mod" | dotnet "$worker" "$data")"
+if [[ "$result" != *'"Verified":true'* || "$result" != *'"Hp":65'* ]]; then
+    echo "Additional non-assembly mod was rejected: $result" >&2
     exit 1
 fi
-echo "PASS unsupported engine version rejected"
+echo "PASS additional mod accepted without a closed allowlist"
+
+mismatched="$(sed -E 's/"GameModule":"[^"]*"/"GameModule":"mismatched-engine"/' <<<"$additional_mod")"
+result="$(printf '%s\n' "$mismatched" | dotnet "$worker" "$data")"
+if [[ "$result" == *'"Verified":true'* ]]; then
+    echo "Mismatched live/worker engine identity was accepted" >&2
+    exit 1
+fi
+echo "PASS mismatched live/worker engine identity rejected"

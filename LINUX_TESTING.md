@@ -18,7 +18,7 @@ chmod +x ./Verify-Mod.sh
 ./Verify-Mod.sh "PATH_TO_SLAY_THE_SPIRE_2"
 ```
 
-Keep the complete output. The diagnostic must report `linux-x64`, the `data_sts2_linuxbsd_x86_64` directory, BaseLib 3.3.8 or newer, and `GameModuleSupported: true`. If the game-module identifier is different, stop: that build must be reviewed and added to the closed allowlist before forecasts are enabled.
+Keep the complete output. The diagnostic must report `linux-x64`, the `data_sts2_linuxbsd_x86_64` directory, BaseLib 3.3.8 or newer, the matching-identity compatibility policy and the expected loaded mods. A Linux module may differ from Windows, but the live game and worker must report the same module and the full verification suite must pass.
 
 ## In-game smoke test
 

@@ -28,16 +28,20 @@ internal static class Engine
 {
     private static bool initialized;
     private static bool loadedBaseLib;
+    private static string loadedModSignature = "";
     private static bool forecasting;
     private static bool futureChoice;
     private static bool engineError;
     private static readonly Harmony patches = new("EndTurnSimulator.IsolatedWorker");
 
-    private static void Initialize(string? data = null, bool baseLib = false)
+    private static void Initialize(string? data = null, bool baseLib = false, SimulationMod[]? requestedMods = null)
     {
+        requestedMods ??= [];
+        string requestedSignature = SimulationProtocol.ModSignature(requestedMods);
         if (initialized)
         {
             if (baseLib != loadedBaseLib) throw new InvalidOperationException("BaseLib configuration changed");
+            if (requestedSignature != loadedModSignature) throw new InvalidOperationException("Loaded mod set changed");
             return;
         }
         // This executable never runs inside the live game. TestMode uses an in-memory save store.
@@ -66,13 +70,18 @@ internal static class Engine
             .GetCustomAttribute<AsyncStateMachineAttribute>()!.StateMachineType;
         patches.Patch(AccessTools.Method(reattach, "MoveNext"), transpiler: new HarmonyMethod(typeof(Engine), nameof(RemoveReattachTextureLoad)));
         Patch("MegaCrit.Sts2.Core.GameActions.Multiplayer.PlayerChoiceSynchronizer:ReserveChoiceId", nameof(ObserveChoice));
+        var registeredMods = (List<Mod>)AccessTools.Field(typeof(ModManager), "_mods").GetValue(null)!;
         if (baseLib)
         {
-            string path = Path.Combine(Directory.GetParent(data!)!.FullName, "mods", "BaseLib", "BaseLib.dll");
-            var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(path);
-            var mods = (List<Mod>)AccessTools.Field(typeof(ModManager), "_mods").GetValue(null)!;
-            mods.Add(new Mod { path = Path.GetDirectoryName(path)!, assembly = assembly, state = ModLoadState.Loaded, manifest = new ModManifest { id = "BaseLib" } });
+            var descriptor = requestedMods.FirstOrDefault(mod => mod.Id == "BaseLib");
+            string path = descriptor?.AssemblyPath ?? Path.Combine(Directory.GetParent(data!)!.FullName, "mods", "BaseLib", "BaseLib.dll");
+            RegisterModAssembly(registeredMods, descriptor ?? new("BaseLib", "unknown", true, path, null), initialize: false);
         }
+        var externalMods = requestedMods.Where(mod => mod.Id is not ("BaseLib" or "EndTurnDamagePreview")
+            && !string.IsNullOrWhiteSpace(mod.AssemblyPath)).ToArray();
+        foreach (var mod in externalMods) RegisterModAssembly(registeredMods, mod, initialize: false);
+        foreach (var mod in externalMods.Where(mod => mod.AffectsGameplay))
+            InitializeModAssembly(registeredMods.Single(loaded => loaded.manifest?.id == mod.Id));
         ModelIdSerializationCache.Init();
         ActionTypes.Initialize();
         ModelDb.Init();
@@ -80,15 +89,57 @@ internal static class Engine
         AccessTools.Field(typeof(MegaCrit.Sts2.Core.Saves.SaveManager), "_currentProfileId").SetValue(MegaCrit.Sts2.Core.Saves.SaveManager.Instance, (int?)1);
         MegaCrit.Sts2.Core.Saves.SaveManager.Instance.InitProgressData();
         loadedBaseLib = baseLib;
+        loadedModSignature = requestedSignature;
         initialized = true;
     }
 
-    internal static async Task Warm(string data, bool baseLib)
+    private static void RegisterModAssembly(List<Mod> registeredMods, SimulationMod descriptor, bool initialize)
     {
-        Initialize(data, baseLib);
+        if (string.IsNullOrWhiteSpace(descriptor.AssemblyPath) || !File.Exists(descriptor.AssemblyPath))
+            throw new FileNotFoundException($"Assembly for mod {descriptor.Id} was not found", descriptor.AssemblyPath);
+        string path = Path.GetFullPath(descriptor.AssemblyPath);
+        var assembly = AssemblyLoadContext.Default.Assemblies.FirstOrDefault(candidate =>
+            !string.IsNullOrWhiteSpace(candidate.Location) && Path.GetFullPath(candidate.Location).Equals(path, StringComparison.OrdinalIgnoreCase))
+            ?? AssemblyLoadContext.Default.LoadFromAssemblyPath(path);
+        string module = assembly.ManifestModule.ModuleVersionId.ToString();
+        if (descriptor.ModuleVersionId != null && !module.Equals(descriptor.ModuleVersionId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Mod assembly identity mismatch for {descriptor.Id}");
+        registeredMods.Add(new Mod
+        {
+            path = Path.GetDirectoryName(path)!, assembly = assembly, state = ModLoadState.Loaded,
+            manifest = new ModManifest { id = descriptor.Id, version = descriptor.Version, affectsGameplay = descriptor.AffectsGameplay }
+        });
+        if (initialize) InitializeModAssembly(registeredMods[^1]);
+    }
+
+    private static void InitializeModAssembly(Mod mod)
+    {
+        var assembly = mod.assembly!;
+        var initializers = assembly.GetTypes().Where(type => type.GetCustomAttribute<ModInitializerAttribute>() != null).ToArray();
+        if (initializers.Length == 0)
+        {
+            new Harmony("EndTurnSimulator.External." + mod.manifest!.id).PatchAll(assembly);
+            return;
+        }
+        foreach (var type in initializers)
+        {
+            var attribute = type.GetCustomAttribute<ModInitializerAttribute>()!;
+            var method = type.GetMethod(attribute.initializerMethod, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                ?? throw new MissingMethodException(type.FullName, attribute.initializerMethod);
+            try { method.Invoke(null, null); }
+            catch (TargetInvocationException ex) when (ex.InnerException != null)
+            {
+                throw new InvalidOperationException($"Mod initializer failed for {mod.manifest!.id}: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}", ex.InnerException);
+            }
+        }
+    }
+
+    internal static async Task Warm(string data, bool baseLib, SimulationMod[]? mods = null)
+    {
+        Initialize(data, baseLib, mods);
         // Exercise the replay and forecast paths now, while the game itself is starting.
         // This moves both model initialization and tiered JIT compilation off the first preview.
-        string request = await Fixture(data, baseLib, logExpected: false);
+        string request = await Fixture(data, baseLib, logExpected: false, mods: mods);
         _ = await Simulate(request, data);
     }
 
@@ -154,8 +205,7 @@ internal static class Engine
     internal static async Task<SimulationResult> Simulate(string json, string data)
     {
         var request = JsonSerializer.Deserialize<SimulationRequest>(json) ?? throw new InvalidDataException();
-        if (!SimulationProtocol.SupportsGameModule(request.GameModule)) return Unknown("Unsupported game version");
-        Initialize(data, request.BaseLib);
+        Initialize(data, request.BaseLib, request.Mods);
         if (typeof(CombatState).Module.ModuleVersionId.ToString() != request.GameModule || ModelIdSerializationCache.Hash != request.ModelHash)
             return Unknown("Engine version mismatch");
         engineError = false;
@@ -244,9 +294,9 @@ internal static class Engine
 
     private static SimulationResult Unknown(string reason) => new(false, 0, 0, [], reason);
 
-    internal static string Diagnostic(string data, bool baseLib)
+    internal static string Diagnostic(string data, bool baseLib, SimulationMod[]? mods = null)
     {
-        Initialize(data, baseLib);
+        Initialize(data, baseLib, mods);
         string module = typeof(CombatState).Module.ModuleVersionId.ToString();
         string? baseLibVersion = null;
         if (baseLib)
@@ -260,11 +310,11 @@ internal static class Engine
             OperatingSystem = RuntimeInformation.OSDescription,
             DataPath = data,
             GameModule = module,
-            GameModuleSupported = SimulationProtocol.SupportsGameModule(module),
-            SupportedGameModules = SimulationProtocol.SupportedGameModules,
+            CompatibilityPolicy = "matching live and worker engine, model and mod identities",
             ModelHash = ModelIdSerializationCache.Hash,
             DotnetHost = SimulationProtocol.ResolveDotnetHost(),
-            BaseLibVersion = baseLibVersion ?? (baseLib ? "unknown" : "not loaded")
+            BaseLibVersion = baseLibVersion ?? (baseLib ? "unknown" : "not loaded"),
+            LoadedMods = mods ?? []
         });
     }
 
@@ -377,9 +427,10 @@ internal static class Engine
         }
     }
 
-    internal static async Task<string> Fixture(string data, bool baseLib, bool logExpected = true)
+    internal static async Task<string> Fixture(string data, bool baseLib, bool logExpected = true, SimulationMod[]? mods = null)
     {
-        Initialize(data, baseLib);
+        mods ??= [];
+        Initialize(data, baseLib, mods);
         var run = RunManager.Instance;
         try
         {
@@ -410,7 +461,8 @@ internal static class Engine
                 await run.ActionExecutor.FinishedExecutingActions();
             }
             var replay = (CombatReplay)AccessTools.Field(typeof(CombatReplayWriter), "_replay").GetValue(run.CombatReplayWriter)!;
-            var request = new SimulationRequest(SimulationProtocol.Pack(replay), SimulationProtocol.Stamp(state, combat), ModelIdSerializationCache.Hash, typeof(CombatState).Module.ModuleVersionId.ToString(), baseLib);
+            var request = new SimulationRequest(SimulationProtocol.Pack(replay), SimulationProtocol.Stamp(state, combat), ModelIdSerializationCache.Hash,
+                typeof(CombatState).Module.ModuleVersionId.ToString(), baseLib, mods);
             var expected = await Predict(state);
             if (logExpected) Console.Error.WriteLine("Expected " + JsonSerializer.Serialize(expected));
             return JsonSerializer.Serialize(request);

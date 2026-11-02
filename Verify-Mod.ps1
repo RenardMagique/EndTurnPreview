@@ -60,10 +60,15 @@ if ($server.ExitCode -ne 0) { throw $server.StandardError.ReadToEnd() }
 Write-Output 'PASS persistent warm engine: 5 verified runs under 100 ms'
 $request = $fixture | ConvertFrom-Json
 $request.Baseline = 'intentionally-invalid'
-$result = (($request | ConvertTo-Json -Compress) | dotnet $worker $data) | ConvertFrom-Json
+$result = (($request | ConvertTo-Json -Depth 8 -Compress) | dotnet $worker $data) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or $result.Verified) { throw 'Divergent state was accepted' }
 Write-Output 'PASS divergent baseline rejected'
+$request = $fixture | ConvertFrom-Json
+$request.Mods = @([pscustomobject]@{ Id='CompatibilityTest'; Version='1.0.0'; AffectsGameplay=$false; AssemblyPath=$null; ModuleVersionId=$null })
+$result = (($request | ConvertTo-Json -Depth 8 -Compress) | dotnet $worker $data) | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or !$result.Verified -or $result.Hp -ne 65) { throw 'Additional non-assembly mod was rejected' }
+Write-Output 'PASS additional mod accepted without a closed allowlist'
 $request.GameModule = 'unsupported-build'
-$result = (($request | ConvertTo-Json -Compress) | dotnet $worker $data) | ConvertFrom-Json
-if ($LASTEXITCODE -ne 0 -or $result.Verified) { throw 'Unsupported version was accepted' }
-Write-Output 'PASS unsupported engine version rejected'
+$result = (($request | ConvertTo-Json -Depth 8 -Compress) | dotnet $worker $data) | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or $result.Verified) { throw 'Mismatched live/worker engine identity was accepted' }
+Write-Output 'PASS mismatched live/worker engine identity rejected'

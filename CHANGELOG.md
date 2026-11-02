@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.15.0
+
+- Removed the closed game-build allowlist; newer builds are accepted when the live game and isolated worker report matching engine and model identities.
+- Removed the blanket rejection of additional mods.
+- Added best-effort loading of third-party assemblies and initialization of mods that declare gameplay changes inside the isolated simulator.
+- Kept multiplayer disabled because the current result protocol represents one player only.
+- Added rate-limited compatibility diagnostics containing runtime, game assembly, module, model hash and loaded mod identities.
+- Added explicit worker errors for missing mod assemblies, module mismatches and failing third-party initializers.
+- Added regression coverage for an additional mod and mismatched live/worker engine identities.
+
 ## 0.14.2
 
 - Fixed an intermittent missing preview when the End Turn button acquired focus before the combat binding completed.
