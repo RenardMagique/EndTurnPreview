@@ -22,6 +22,7 @@ internal static class SimulationClient
     private static WorkerSession? session;
     private static string diagnosticContext = "combat state unavailable";
     private static string? lastDiagnosticKey;
+    private static string? lastRandomDiagnosticKey;
     private static long computationStartedAt;
     private static bool slowComputationLogged;
     private static SimulationMod[] loadedMods = [];
@@ -164,6 +165,18 @@ internal static class SimulationClient
         if (result.Verified)
         {
             lastDiagnosticKey = null;
+            if (result.Randomized)
+            {
+                string sources = string.Join(",", result.RandomSources);
+                string key = $"{result.MinHp}-{result.MaxHp}|{result.MinBlock}-{result.MaxBlock}|{sources}|{diagnosticContext}";
+                if (key != lastRandomDiagnosticKey)
+                {
+                    lastRandomDiagnosticKey = key;
+                    GD.Print($"{MainFile.ModId}: hidden-randomness forecast: "
+                        + $"playerHp={result.MinHp}-{result.MaxHp}, block={result.MinBlock}-{result.MaxBlock}, "
+                        + $"sources=[{sources}], branches={result.Branches} | {diagnosticContext}");
+                }
+            }
             return;
         }
         LogFailure(result.Status);
@@ -180,13 +193,18 @@ internal static class SimulationClient
     private static string Describe(CombatState combat)
     {
         string players = string.Join(", ", combat.Players.Select(player =>
-            $"{player.Creature.CurrentHp}/{player.Creature.MaxHp} HP, {player.Creature.Block} block"));
+            $"{player.Creature.CurrentHp}/{player.Creature.MaxHp} HP, {player.Creature.Block} block, "
+            + $"powers=[{DescribePowers(player.Creature)}], "
+            + $"hand=[{string.Join(",", player.PlayerCombatState?.Hand.Cards.Select(card => card.Id.ToString()) ?? [])}]"));
         string enemies = string.Join(", ", combat.Enemies.Select(enemy =>
             $"{enemy.Monster?.Id.ToString() ?? "unknown"}:{enemy.Monster?.NextMove.Id ?? "unknown"}:"
-            + $"{enemy.CurrentHp}/{enemy.MaxHp} HP"));
+            + $"{enemy.CurrentHp}/{enemy.MaxHp} HP:powers=[{DescribePowers(enemy)}]"));
         return $"{compatibilityContext}, round={combat.RoundNumber}, side={combat.CurrentSide}, "
             + $"players=[{players}], enemies=[{enemies}]";
     }
+
+    private static string DescribePowers(Creature creature) => string.Join(",",
+        creature.Powers.Select(power => $"{power.Id}:{power.Amount}"));
 
     private sealed class WorkerSession : IDisposable
     {
@@ -350,5 +368,6 @@ internal static class SimulationClient
         }
     }
 
-    private static SimulationResult Unavailable(string status) => new(false, 0, 0, [], status);
+    private static SimulationResult Unavailable(string status) =>
+        new(false, 0, 0, [], status, false, 0, 0, 0, 0, [], 0);
 }

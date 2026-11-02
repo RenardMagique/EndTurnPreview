@@ -12,8 +12,13 @@ namespace EndTurnDamagePreview;
 
 public sealed record SimulationMod(string Id, string Version, bool AffectsGameplay, string? AssemblyPath, string? ModuleVersionId);
 public sealed record SimulationRequest(string Replay, string Baseline, uint ModelHash, string GameModule, bool BaseLib, SimulationMod[] Mods);
-public sealed record SimulatedPetState(int Index, string ModelId, int Hp, int Block, bool Alive);
-public sealed record SimulationResult(bool Verified, int Hp, int Block, SimulatedPetState[] Pets, string Status);
+public sealed record SimulatedPetState(
+    int Index, string ModelId, int Hp, int Block, bool Alive,
+    int MinHp, int MaxHp, int MinBlock, int MaxBlock);
+public sealed record SimulationResult(
+    bool Verified, int Hp, int Block, SimulatedPetState[] Pets, string Status,
+    bool Randomized, int MinHp, int MaxHp, int MinBlock, int MaxBlock,
+    string[] RandomSources, int Branches);
 public sealed record SimulationServerResponse(SimulationResult Result, long ElapsedMs);
 
 public static class SimulationProtocol

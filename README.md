@@ -1,4 +1,4 @@
-# End Turn Preview v0.15.0
+# End Turn Preview v0.16.0
 
 Author: Renard Magique
 
@@ -13,6 +13,8 @@ End Turn Preview simulates the rest of the current turn and displays the result 
 - Supports a configurable keyboard key or mouse button that reveals the cached preview while held.
 - Animates the native HP number from current HP to projected HP.
 - Adds a subtle end-turn-blue aura behind the player's health bar while the forecast is visible.
+- Detects damage-relevant hidden combat randomness instead of revealing one seeded future outcome.
+- Shows the observed random HP interval with a native purple bar segment and a purple aura.
 - Uses the game's native red foreground and orange damage-trail layers. No custom rectangle is placed over the health bar.
 - Replaces the native Block number with projected Block and uses the native block-break effect when all Block will be lost.
 - Applies the same projected HP and Block display to player-owned pets, including Osty, and previews lethal damage even when the pet will be removed from combat.
@@ -86,7 +88,7 @@ Multiplayer remains unsupported because the current result protocol represents o
 
 There is no closed game-version allowlist. The worker instead requires its engine module, model hash and loaded mod identities to match the live game for every request. The forecast is also withheld while actions are still resolving or when the simulation requires a future player choice.
 
-At startup and whenever the loaded mod set changes, the mod logs a compatibility line containing its version, runtime platform, game assembly version, engine module identifier, model hash and loaded mod identities. When a forecast cannot be verified, it writes one rate-limited diagnostic for each distinct combat state and reason. The line also includes the round, side, player HP and Block, and enemy models, moves and HP. Worker startup failures, missing assemblies, module mismatches and third-party initializer exceptions include their available error details.
+At startup and whenever the loaded mod set changes, the mod logs a compatibility line containing its version, runtime platform, game assembly version, engine module identifier, model hash and loaded mod identities. When a forecast cannot be verified, it writes one rate-limited diagnostic for each distinct combat state and reason. The line also includes the round, side, player HP and Block, powers, hand contents, and enemy models, moves, powers and HP. Hidden-randomness forecasts log their RNG sources, branch count and resulting HP/Block interval. Worker startup failures, missing assemblies, module mismatches and third-party initializer exceptions include their available error details.
 
 To report a missing or incorrect forecast, reproduce the problem and close the game without starting it again. Attach the complete `godot.log`, the mod version, game version, BaseLib version, enabled-mod list and a short description to a Nexus bug report or a [GitHub issue](https://github.com/RenardMagique/EndTurnPreview/issues). Useful entries contain `EndTurnDamagePreview: forecast unavailable`.
 

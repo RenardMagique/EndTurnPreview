@@ -22,6 +22,7 @@ internal sealed class HealthPreview
     private readonly HealthBarAura? aura;
     private readonly float nativeMiddlegroundLeft;
     private readonly float nativeMiddlegroundGap;
+    private readonly Color nativePoisonModulate;
     private bool blockPreviewApplied;
     private bool breakEffectShown;
     private bool hpAnimationActive;
@@ -50,6 +51,7 @@ internal sealed class HealthPreview
         }
         nativeMiddlegroundLeft = middleground.Position.X;
         nativeMiddlegroundGap = foreground.OffsetRight - middleground.OffsetRight;
+        nativePoisonModulate = poisonForeground.SelfModulate;
         var timer = new Godot.Timer { Name = "EndTurnPreviewTimer", WaitTime = 0.02, Autostart = true };
         bar.AddChild(timer);
         timer.Timeout += Refresh;
@@ -67,10 +69,11 @@ internal sealed class HealthPreview
         blockPreviewApplied = false;
         breakEffectShown = false;
         hpAnimationActive = false;
+        poisonForeground.SelfModulate = nativePoisonModulate;
         bar.RefreshValues();
     }
 
-    private void AnimateHp(int target)
+    private void AnimateHp(int target, int potentialTarget)
     {
         int current = creature.CurrentHp;
         if (!hpAnimationActive || hpAnimationFrom != current || hpAnimationTarget != target)
@@ -85,10 +88,12 @@ internal sealed class HealthPreview
         // Ease out so the final predicted value remains easy to read.
         float eased = 1f - MathF.Pow(1f - progress, 3f);
         int displayed = (int)MathF.Round(hpAnimationFrom + (hpAnimationTarget - hpAnimationFrom) * eased);
-        hpLabel.SetTextAutoSize($"{displayed}/{creature.MaxHp}");
+        hpLabel.SetTextAutoSize(progress >= 1f && potentialTarget != target
+            ? $"{target}–{potentialTarget}/{creature.MaxHp}"
+            : $"{displayed}/{creature.MaxHp}");
     }
 
-    private void ApplyBlockPreview(int remaining)
+    private void ApplyBlockPreview(int remaining, int potentialRemaining)
     {
         blockPreviewApplied = true;
         if (remaining > 0)
@@ -96,7 +101,9 @@ internal sealed class HealthPreview
             breakEffectShown = false;
             blockContainer.Visible = true;
             blockOutline.Visible = true;
-            blockLabel.SetTextAutoSize(remaining.ToString());
+            blockLabel.SetTextAutoSize(potentialRemaining == remaining
+                ? remaining.ToString()
+                : $"{remaining}–{potentialRemaining}");
             foreground.SelfModulate = new Color("3B6FA3");
             hpLabel.AddThemeColorOverride("font_outline_color", new Color("1B3045"));
             return;
@@ -134,9 +141,9 @@ internal sealed class HealthPreview
                 RestoreNativeUi();
                 return;
             }
-            ApplyBlockPreview(forecast.BlockRemaining);
-            AnimateHp(forecast.HpRemaining);
-            aura?.Show();
+            ApplyBlockPreview(forecast.BlockRemaining, forecast.BlockPotentialRemaining);
+            AnimateHp(forecast.HpRemaining, forecast.HpPotentialRemaining);
+            aura?.Show(forecast.Randomized);
 
             // Reproduce an actual hit with the two layers already owned by NHealthBar:
             // red foreground = projected HP; orange middleground = HP about to be lost.
@@ -144,6 +151,7 @@ internal sealed class HealthPreview
             float maximumWidth = GetNativeBarWidth(creature.MaxHp);
             float currentWidth = GetNativeBarWidth(creature.CurrentHp);
             float projectedWidth = GetNativeBarWidth(forecast.HpRemaining);
+            float potentialWidth = GetNativeBarWidth(forecast.HpPotentialRemaining);
             bool losingHp = forecast.HpLost > 0 && currentWidth > projectedWidth;
 
             foreground.Visible = forecast.HpRemaining > 0;
@@ -151,7 +159,21 @@ internal sealed class HealthPreview
             middleground.Position = new Vector2(nativeMiddlegroundLeft, middleground.Position.Y);
             middleground.OffsetRight = currentWidth - maximumWidth - nativeMiddlegroundGap;
             middleground.Visible = losingHp;
-            poisonForeground.Visible = false;
+            bool randomHpRange = forecast.Randomized && potentialWidth > projectedWidth;
+            if (randomHpRange)
+            {
+                // Reuse the game's native poison segment. It is already clipped and
+                // nine-patched to the exact angled health-bar silhouette.
+                int patchMarginLeft = ((NinePatchRect)poisonForeground).PatchMarginLeft;
+                poisonForeground.OffsetLeft = Math.Max(0f, projectedWidth - patchMarginLeft);
+                poisonForeground.OffsetRight = potentialWidth - maximumWidth;
+                poisonForeground.SelfModulate = new Color("A86BE8");
+                poisonForeground.Visible = true;
+            }
+            else
+            {
+                poisonForeground.Visible = false;
+            }
             doomForeground.Visible = false;
         }
         catch (Exception ex)
@@ -167,6 +189,8 @@ internal sealed class HealthPreview
     private sealed class HealthBarAura
     {
         private static readonly Color EndTurnBlue = new("5A92AA");
+        private static readonly Color RandomPurple = new("8F63C9");
+        private static readonly float[] LayerAlpha = [0.06f, 0.09f, 0.14f];
         private readonly NHealthBar bar;
         private readonly Control container;
         private readonly Polygon2D[] layers;
@@ -197,10 +221,15 @@ internal sealed class HealthPreview
             Color = new Color(EndTurnBlue, alpha)
         };
 
-        internal void Show()
+        internal void Show(bool randomized)
         {
             UpdateGeometry();
-            foreach (var layer in layers) layer.Visible = true;
+            Color color = randomized ? RandomPurple : EndTurnBlue;
+            for (int i = 0; i < layers.Length; i++)
+            {
+                layers[i].Color = new Color(color, LayerAlpha[i]);
+                layers[i].Visible = true;
+            }
         }
 
         internal void Hide()

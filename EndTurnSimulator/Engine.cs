@@ -11,6 +11,7 @@ using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
+using MegaCrit.Sts2.Core.Entities.Rngs;
 using MegaCrit.Sts2.Core.GameActions;
 using MegaCrit.Sts2.Core.GameActions.Multiplayer;
 using MegaCrit.Sts2.Core.Modding;
@@ -26,6 +27,9 @@ namespace EndTurnSimulator;
 
 internal static class Engine
 {
+    private sealed record ForecastAttempt(
+        SimulationResult Result, RunRngType[] UsedRngs, bool HasStampede, uint RunSeed);
+
     private static bool initialized;
     private static bool loadedBaseLib;
     private static string loadedModSignature = "";
@@ -208,15 +212,49 @@ internal static class Engine
         Initialize(data, request.BaseLib, request.Mods);
         if (typeof(CombatState).Module.ModuleVersionId.ToString() != request.GameModule || ModelIdSerializationCache.Hash != request.ModelHash)
             return Unknown("Engine version mismatch");
+        var reader = new PacketReader();
+        reader.Reset(Convert.FromBase64String(request.Replay));
+        var replay = reader.Read<CombatReplay>();
+        if (replay.serializableRun.Players.Count != 1) return Unknown("Multiplayer not supported");
+
+        var exact = await RunForecastAttempt(request, replay, null);
+        if (!exact.Result.Verified) return exact.Result;
+
+        // MonsterAi rolls select a later visible intent after the current enemy turn,
+        // so they cannot change damage in the interval being previewed. Shuffle is
+        // relevant here only when Stampede performs its hidden random card choice.
+        var sensitive = exact.UsedRngs.Where(type => type switch
+        {
+            RunRngType.CombatTargets or RunRngType.CombatCardSelection
+                or RunRngType.CombatCardGeneration or RunRngType.CombatPotionGeneration
+                or RunRngType.CombatEnergyCosts or RunRngType.CombatOrbs => true,
+            RunRngType.Shuffle => exact.HasStampede,
+            _ => false
+        }).Distinct().ToArray();
+        if (sensitive.Length == 0) return exact.Result;
+
+        var outcomes = new List<SimulationResult> { exact.Result };
+        const int alternateBranches = 12;
+        for (int branch = 1; branch <= alternateBranches; branch++)
+        {
+            var overrides = sensitive.ToDictionary(type => type,
+                type => MixSeed(exact.RunSeed, type, branch));
+            var alternate = await RunForecastAttempt(request, replay, overrides);
+            if (alternate.Result.Verified) outcomes.Add(alternate.Result);
+        }
+        return CombineRandomOutcomes(outcomes, sensitive);
+    }
+
+    private static async Task<ForecastAttempt> RunForecastAttempt(
+        SimulationRequest request,
+        CombatReplay replay,
+        IReadOnlyDictionary<RunRngType, uint>? rngOverrides)
+    {
         engineError = false;
         futureChoice = false;
         forecasting = false;
         try
         {
-            var reader = new PacketReader();
-            reader.Reset(Convert.FromBase64String(request.Replay));
-            var replay = reader.Read<CombatReplay>();
-            if (replay.serializableRun.Players.Count != 1) return Unknown("Multiplayer not supported");
             var state = RunState.FromSerializable(replay.serializableRun);
             var run = RunManager.Instance;
             run.SetUpReplay(state, replay);
@@ -250,25 +288,77 @@ internal static class Engine
                     case CombatReplayEventType.PlayerChoice:
                         run.PlayerChoiceSynchronizer.ReceiveReplayChoice(state.GetPlayer(item.playerId!.Value)!, item.choiceId!.Value, item.playerChoiceResult!.Value);
                         break;
-                    default: return Unknown("Unsupported replay event");
+                    default: return new(Unknown("Unsupported replay event"), [], false, state.Rng.Seed);
                 }
                 await Task.Yield();
             }
             await run.ActionExecutor.FinishedExecutingActions();
             while (CombatManager.Instance.IsStarting || CombatManager.Instance.EndingPlayerTurnPhaseOne || CombatManager.Instance.EndingPlayerTurnPhaseTwo) await Task.Delay(1);
             var combat = CombatManager.Instance.DebugOnlyGetState();
-            if (engineError) return Unknown("Replay produced an engine error");
-            if (combat == null) return Unknown("Replay did not restore combat");
+            if (engineError) return new(Unknown("Replay produced an engine error"), [], false, state.Rng.Seed);
+            if (combat == null) return new(Unknown("Replay did not restore combat"), [], false, state.Rng.Seed);
             string actual = SimulationProtocol.Stamp(state, combat);
             if (actual != request.Baseline)
-                return Unknown("Combat state mismatch: " + SimulationProtocol.DescribeStampMismatch(request.Baseline, actual));
-            return await Predict(state);
+                return new(Unknown("Combat state mismatch: " + SimulationProtocol.DescribeStampMismatch(request.Baseline, actual)), [], false, state.Rng.Seed);
+
+            bool hasStampede = combat.Players.Any(player => player.Creature.Powers.Any(power =>
+                power.Id.ToString().Contains("STAMPEDE", StringComparison.OrdinalIgnoreCase)));
+            if (rngOverrides != null)
+                foreach (var (type, seed) in rngOverrides) state.Rng.MockRng(type, seed);
+            var before = state.Rng.ToSerializable().Counters;
+            var result = await Predict(state);
+            var after = state.Rng.ToSerializable().Counters;
+            var used = before.Keys.Concat(after.Keys).Distinct()
+                .Where(type => before.GetValueOrDefault(type) != after.GetValueOrDefault(type))
+                .ToArray();
+            return new(result, used, hasStampede, state.Rng.Seed);
         }
         finally
         {
             forecasting = false;
             if (RunManager.Instance.IsInProgress) RunManager.Instance.CleanUp(graceful: true);
         }
+    }
+
+    private static uint MixSeed(uint seed, RunRngType type, int branch)
+    {
+        unchecked
+        {
+            uint value = seed ^ ((uint)type + 1u) * 0x9E3779B9u ^ (uint)branch * 0x85EBCA6Bu;
+            value ^= value >> 16;
+            value *= 0x7FEB352Du;
+            value ^= value >> 15;
+            return value;
+        }
+    }
+
+    private static SimulationResult CombineRandomOutcomes(
+        IReadOnlyList<SimulationResult> outcomes,
+        RunRngType[] sources)
+    {
+        int minHp = outcomes.Min(result => result.Hp);
+        int maxHp = outcomes.Max(result => result.Hp);
+        int minBlock = outcomes.Min(result => result.Block);
+        int maxBlock = outcomes.Max(result => result.Block);
+        var first = outcomes[0];
+        var pets = first.Pets.Select(pet =>
+        {
+            var variants = outcomes.SelectMany(result => result.Pets)
+                .Where(candidate => candidate.Index == pet.Index && candidate.ModelId == pet.ModelId)
+                .ToArray();
+            int petMinHp = variants.Min(candidate => candidate.Hp);
+            int petMaxHp = variants.Max(candidate => candidate.Hp);
+            int petMinBlock = variants.Min(candidate => candidate.Block);
+            int petMaxBlock = variants.Max(candidate => candidate.Block);
+            return new SimulatedPetState(pet.Index, pet.ModelId, petMinHp, petMinBlock,
+                variants.All(candidate => candidate.Alive), petMinHp, petMaxHp, petMinBlock, petMaxBlock);
+        }).ToArray();
+        bool randomized = minHp != maxHp || minBlock != maxBlock || pets.Any(pet =>
+            pet.MinHp != pet.MaxHp || pet.MinBlock != pet.MaxBlock);
+        string[] randomSources = randomized ? sources.Select(source => source.ToString()).ToArray() : [];
+        return new(true, minHp, minBlock, pets,
+            randomized ? first.Status + " (HIDDEN RANDOMNESS)" : first.Status,
+            randomized, minHp, maxHp, minBlock, maxBlock, randomSources, outcomes.Count);
     }
 
     private static async Task<SimulationResult> Predict(RunState state)
@@ -284,15 +374,18 @@ internal static class Engine
             await RunManager.Instance.ActionExecutor.FinishedExecutingActions();
             var player = state.Players[0].Creature;
             var pets = petReferences.Select((pet, index) => new SimulatedPetState(index,
-                pet.Monster?.Id.ToString() ?? "", pet.CurrentHp, pet.Block, pet.IsAlive)).ToArray();
+                pet.Monster?.Id.ToString() ?? "", pet.CurrentHp, pet.Block, pet.IsAlive,
+                pet.CurrentHp, pet.CurrentHp, pet.Block, pet.Block)).ToArray();
             return futureChoice ? Unknown("Player choice required") : engineError ? Unknown("Simulation error")
-                : new(true, player.CurrentHp, player.Block, pets, manager.IsInProgress ? "NEXT TURN" : "COMBAT ENDS");
+                : new(true, player.CurrentHp, player.Block, pets, manager.IsInProgress ? "NEXT TURN" : "COMBAT ENDS",
+                    false, player.CurrentHp, player.CurrentHp, player.Block, player.Block, [], 1);
         }
         catch (Exception) when (futureChoice) { return Unknown("Player choice required"); }
         finally { forecasting = false; }
     }
 
-    private static SimulationResult Unknown(string reason) => new(false, 0, 0, [], reason);
+    private static SimulationResult Unknown(string reason) =>
+        new(false, 0, 0, [], reason, false, 0, 0, 0, 0, [], 0);
 
     internal static string Diagnostic(string data, bool baseLib, SimulationMod[]? mods = null)
     {
@@ -321,6 +414,18 @@ internal static class Engine
     internal static async Task SelfTest(string scenario)
     {
         Initialize();
+        if (scenario == "random-range")
+        {
+            static SimulationResult Outcome(int hp) => new(true, hp, 0, [], "NEXT TURN",
+                false, hp, hp, 0, 0, [], 1);
+            var range = CombineRandomOutcomes([Outcome(82), Outcome(71), Outcome(76)],
+                [RunRngType.CombatTargets]);
+            if (!range.Verified || !range.Randomized || range.MinHp != 71 || range.MaxHp != 82
+                || range.Hp != 71 || range.RandomSources is not [nameof(RunRngType.CombatTargets)])
+                throw new InvalidOperationException("Hidden-randomness range was not aggregated safely");
+            Console.WriteLine("PASS random-range: 71-82 HP, CombatTargets marked hidden");
+            return;
+        }
         if (scenario == "happy-flower-visual")
         {
             var flower = ModelDb.Relic<MegaCrit.Sts2.Core.Models.Relics.HappyFlower>().ToMutable();

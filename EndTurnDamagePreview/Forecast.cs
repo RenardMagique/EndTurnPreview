@@ -2,13 +2,18 @@ using MegaCrit.Sts2.Core.Entities.Creatures;
 
 namespace EndTurnDamagePreview;
 
-internal readonly record struct Forecast(int HpLost, int HpRemaining, int BlockLost, int BlockRemaining, bool Unknown, string Status)
+internal readonly record struct Forecast(
+    int HpLost, int HpRemaining, int HpPotentialRemaining,
+    int BlockLost, int BlockRemaining, int BlockPotentialRemaining,
+    bool Randomized, bool Unknown, string Status)
 {
-    internal static Forecast Pending(string status) => new(0, 0, 0, 0, true, status);
+    internal static Forecast Pending(string status) => new(0, 0, 0, 0, 0, 0, false, true, status);
     internal static Forecast FromResult(SimulationResult result, Creature creature)
     {
         if (!result.Verified) return Pending(result.Status);
-        if (creature.IsPlayer) return Create(creature, result.Hp, result.Block, result.Status);
+        if (creature.IsPlayer)
+            return Create(creature, result.MinHp, result.MaxHp, result.MinBlock, result.MaxBlock,
+                result.Randomized, result.Status);
         if (!creature.IsPet || creature.PetOwner?.PlayerCombatState == null) return Pending("Unsupported creature");
 
         var pets = creature.PetOwner.PlayerCombatState.Pets;
@@ -19,9 +24,14 @@ internal readonly record struct Forecast(int HpLost, int HpRemaining, int BlockL
 
         string modelId = creature.Monster?.Id.ToString() ?? "";
         var pet = result.Pets.FirstOrDefault(p => p.Index == index && p.ModelId == modelId);
-        return pet == null ? Pending("Pet forecast unavailable") : Create(creature, pet.Hp, pet.Block, result.Status);
+        return pet == null ? Pending("Pet forecast unavailable")
+            : Create(creature, pet.MinHp, pet.MaxHp, pet.MinBlock, pet.MaxBlock,
+                pet.MinHp != pet.MaxHp || pet.MinBlock != pet.MaxBlock, result.Status);
     }
 
-    private static Forecast Create(Creature creature, int hp, int block, string status) =>
-        new(creature.CurrentHp - hp, hp, creature.Block - block, block, false, status);
+    private static Forecast Create(Creature creature, int minHp, int maxHp, int minBlock, int maxBlock,
+        bool randomized, string status) => new(
+            creature.CurrentHp - minHp, minHp, maxHp,
+            creature.Block - minBlock, minBlock, maxBlock,
+            randomized, false, status);
 }

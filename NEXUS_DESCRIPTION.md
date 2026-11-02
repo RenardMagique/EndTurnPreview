@@ -10,10 +10,12 @@ End Turn Preview simulates the rest of the current turn with Slay the Spire 2's 
 - End-of-turn effects, enemy actions, poison, healing and Block expiration are included
 - The HP number animates down to its projected value
 - A subtle blue aura makes it clear when a forecast is being displayed
+- A purple aura and native purple bar segment identify a forecast range caused by hidden combat randomness
 - Display the forecast by hovering End Turn, keeping it always visible, or holding a custom keyboard or mouse shortcut
 - Optional continuous background calculation, disabled by default
 - No save-file changes
 - Unsafe or unverifiable results are hidden instead of showing a misleading number
+- Damage-relevant seeded randomness is explored in isolated branches instead of revealing one hidden outcome
 
 ## Installation
 
@@ -67,7 +69,7 @@ Log locations:
 - **Windows:** `%APPDATA%\SlayTheSpire2\logs\godot.log`
 - **Native Linux:** `~/.local/share/SlayTheSpire2/logs/godot.log`
 
-Useful entries contain `EndTurnDamagePreview: forecast unavailable`. The complete log is preferable because nearby lines provide the context needed to diagnose worker startup and combat-state problems. Logs may contain local file paths or system information, so you may review the file before posting it publicly.
+Useful entries contain `EndTurnDamagePreview: forecast unavailable` or `EndTurnDamagePreview: hidden-randomness forecast`. The complete log is preferable because nearby lines provide the context needed to diagnose worker startup and combat-state problems. Logs may contain local file paths or system information, so you may review the file before posting it publicly.
 
 ## Uninstallation
 

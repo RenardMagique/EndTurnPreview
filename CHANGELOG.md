@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.16.0
+
+- Prevented forecasts from revealing one seeded outcome for damage-relevant hidden combat randomness.
+- Added isolated alternate RNG branches for random combat targets and other relevant combat rolls.
+- Displayed the observed best-to-worst HP interval as a purple segment using the game's native health-bar geometry.
+- Changed the player health-bar aura from blue to purple whenever the visible forecast contains random variance.
+- Added range-aware HP and Block labels for uncertain outcomes.
+- Added hidden-randomness sources, branch counts, powers and hand contents to diagnostic logging.
+- Added a regression test for safe random-range aggregation.
+
 ## 0.15.0
 
 - Removed the closed game-build allowlist; newer builds are accepted when the live game and isolated worker report matching engine and model identities.
