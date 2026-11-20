@@ -50,11 +50,19 @@ done
 
 fixture="$(dotnet "$worker" "$data" --fixture --baselib)"
 result="$(printf '%s\n' "$fixture" | dotnet "$worker" "$data")"
-if [[ "$result" != *'"Verified":true'* || "$result" != *'"Hp":65'* || "$result" != *'"Block":0'* ]]; then
+if [[ "$result" != *'"Verified":true'* || "$result" != *'"Hp":70'* || "$result" != *'"Block":0'* ]]; then
     echo "Independent replay mismatch: $result" >&2
     exit 1
 fi
-echo "PASS independent replay: 65 HP, 0 block"
+echo "PASS independent replay: 70 HP, 0 block"
+fixture="$(dotnet "$worker" "$data" --fixture --event --baselib)"
+result="$(printf '%s
+' "$fixture" | dotnet "$worker" "$data")"
+if [[ "$result" != *'"Verified":true'* || "$result" != *'"Hp":25'* || "$result" != *'"Block":0'* ]]; then
+    echo "Event combat replay mismatch: $result" >&2
+    exit 1
+fi
+echo "PASS event combat replay: 25 HP, 0 block"
 
 coproc simulator { dotnet "$worker" "$data" --server --baselib; }
 simulator_output="${simulator[0]}"
@@ -69,7 +77,7 @@ for _ in 1 2 3 4 5; do
     printf '%s\n' "$fixture" >&"$simulator_input"
     IFS= read -r warm <&"$simulator_output"
     elapsed="$(sed -n 's/.*"ElapsedMs":\([0-9][0-9]*\).*/\1/p' <<<"$warm")"
-    if [[ "$warm" != *'"Verified":true'* || "$warm" != *'"Hp":65'* || -z "$elapsed" || "$elapsed" -gt 100 ]]; then
+    if [[ "$warm" != *'"Verified":true'* || "$warm" != *'"Hp":70'* || -z "$elapsed" || "$elapsed" -gt 100 ]]; then
         echo "Warm simulation failed or exceeded 100 ms: $warm" >&2
         exit 1
     fi
@@ -88,7 +96,7 @@ echo "PASS divergent baseline rejected"
 
 additional_mod="$(sed 's/"Mods":\[\]/"Mods":[{"Id":"CompatibilityTest","Version":"1.0.0","AffectsGameplay":false,"AssemblyPath":null,"ModuleVersionId":null}]/' <<<"$fixture")"
 result="$(printf '%s\n' "$additional_mod" | dotnet "$worker" "$data")"
-if [[ "$result" != *'"Verified":true'* || "$result" != *'"Hp":65'* ]]; then
+if [[ "$result" != *'"Verified":true'* || "$result" != *'"Hp":70'* ]]; then
     echo "Additional non-assembly mod was rejected: $result" >&2
     exit 1
 fi

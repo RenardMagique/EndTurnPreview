@@ -7,6 +7,8 @@ using HarmonyLib;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Modding;
+using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Rewards;
 using MegaCrit.Sts2.Core.Multiplayer.Replay;
 using MegaCrit.Sts2.Core.Multiplayer.Serialization;
 using MegaCrit.Sts2.Core.Runs;
@@ -29,6 +31,41 @@ internal static class SimulationClient
     private static string compatibilityContext = "compatibility state unavailable";
     private static string workerPath = "";
     private static string dataPath = "";
+    private static CombatReplay? eventAnchor;
+    private static CombatReplay? eventAnchorSource;
+    private static int eventAnchorEventCount;
+    private static string? eventEncounter;
+
+    // Called just before an event option starts a combat. The game's replay began when the
+    // event room was entered and does not contain event choices, so keep a snapshot of the run
+    // at combat entry; it stays valid only while the game keeps the same replay object.
+    internal static void AnchorEventCombat(EncounterModel encounter)
+    {
+        try
+        {
+            var run = RunManager.Instance;
+            eventAnchor = null;
+            if (replayField.GetValue(run.CombatReplayWriter) is not CombatReplay live) return;
+            eventAnchor = new CombatReplay
+            {
+                version = live.version, gitCommit = live.gitCommit, modelIdHash = live.modelIdHash,
+                choiceIds = run.PlayerChoiceSynchronizer.ChoiceIds.ToList(),
+                rewardIds = run.RewardsSetSynchronizer.GetNextRewardIds().ToList(),
+                nextActionId = run.ActionQueueSet.NextActionId,
+                nextChecksumId = run.ChecksumTracker.NextId,
+                nextHookId = run.ActionQueueSynchronizer.NextHookId,
+                serializableRun = run.ToSave(null)
+            };
+            eventAnchorSource = live;
+            eventAnchorEventCount = live.events.Count;
+            eventEncounter = encounter.Id.ToString();
+        }
+        catch (Exception ex)
+        {
+            eventAnchor = null;
+            GD.PrintErr($"{MainFile.ModId}: event combat snapshot failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
 
     internal static void StartWarm()
     {
@@ -56,16 +93,17 @@ internal static class SimulationClient
 
     private static SimulationMod DescribeMod(Mod mod)
     {
-        string id = mod.manifest?.id ?? mod.assembly?.GetName().Name ?? "unknown";
-        string version = mod.manifest?.version ?? mod.assembly?.GetName().Version?.ToString() ?? "unknown";
+        System.Reflection.Assembly? assembly = mod.assemblies.FirstOrDefault();
+        string id = mod.manifest?.id ?? assembly?.GetName().Name ?? "unknown";
+        string version = mod.manifest?.version ?? assembly?.GetName().Version?.ToString() ?? "unknown";
         string? path = null;
         string? module = null;
         try
         {
-            if (mod.assembly != null)
+            if (assembly != null)
             {
-                path = mod.assembly.Location;
-                module = mod.assembly.ManifestModule.ModuleVersionId.ToString();
+                path = assembly.Location;
+                module = assembly.ManifestModule.ModuleVersionId.ToString();
             }
         }
         catch (Exception ex)
@@ -143,9 +181,17 @@ internal static class SimulationClient
         if (replayField.GetValue(run.CombatReplayWriter) is not CombatReplay replay)
             return DiagnosticPending("Combat replay unavailable");
 
+        string? encounter = null;
+        if (eventAnchor != null && ReferenceEquals(eventAnchorSource, replay) && replay.events.Count >= eventAnchorEventCount)
+        {
+            eventAnchor.events = replay.events.Skip(eventAnchorEventCount).ToList();
+            replay = eventAnchor;
+            encounter = eventEncounter;
+        }
+
         // Only immutable bytes cross the process boundary; the live combat is never mutated.
         var request = new SimulationRequest(SimulationProtocol.Pack(replay), stamp, ModelIdSerializationCache.Hash,
-            typeof(CombatState).Module.ModuleVersionId.ToString(), loadedMods.Any(mod => mod.Id == "BaseLib"), loadedMods);
+            typeof(CombatState).Module.ModuleVersionId.ToString(), loadedMods.Any(mod => mod.Id == "BaseLib"), loadedMods, encounter);
         computation = session == null
             ? Task.FromResult(Unavailable("Simulator unavailable"))
             : session.Simulate(JsonSerializer.Serialize(request));
@@ -245,6 +291,8 @@ internal static class SimulationClient
                     RedirectStandardOutput = true,
                     RedirectStandardError = true
                 };
+                // Inherited from the game, this makes Sentry.Godot load its native library in the worker and crash.
+                info.Environment.Remove("SENTRY_GODOT_LIB_PATH");
                 info.ArgumentList.Add(worker);
                 info.ArgumentList.Add(data);
                 info.ArgumentList.Add("--server");
@@ -370,4 +418,11 @@ internal static class SimulationClient
 
     private static SimulationResult Unavailable(string status) =>
         new(false, 0, 0, [], status, false, 0, 0, 0, 0, [], 0);
+}
+
+[HarmonyPatch(typeof(EventModel), "EnterCombatWithoutExitingEvent", [typeof(EncounterModel), typeof(IReadOnlyList<Reward>), typeof(bool)])]
+internal static class EventCombatAnchorPatch
+{
+    // Positional argument: the parameter was renamed between game versions.
+    private static void Prefix(EncounterModel __0) => SimulationClient.AnchorEventCombat(__0);
 }

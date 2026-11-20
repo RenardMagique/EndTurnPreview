@@ -28,7 +28,7 @@ namespace EndTurnSimulator;
 internal static class Engine
 {
     private sealed record ForecastAttempt(
-        SimulationResult Result, RunRngType[] UsedRngs, bool HasStampede, uint RunSeed);
+        SimulationResult Result, RunRngType[] UsedRngs, bool HasStampede, ulong RunSeed);
 
     private static bool initialized;
     private static bool loadedBaseLib;
@@ -36,7 +36,10 @@ internal static class Engine
     private static bool forecasting;
     private static bool futureChoice;
     private static bool engineError;
+    private static string? engineErrorText;
+    private static string? engineErrorFull;
     private static readonly Harmony patches = new("EndTurnSimulator.IsolatedWorker");
+    private static readonly MethodInfo enterRoom = AccessTools.Method(typeof(RunManager), "EnterRoomInternal");
 
     private static void Initialize(string? data = null, bool baseLib = false, SimulationMod[]? requestedMods = null)
     {
@@ -53,10 +56,30 @@ internal static class Engine
         AccessTools.PropertySetter(typeof(ModManager), nameof(ModManager.State)).Invoke(null, [ModManagerState.Initialized]);
         Patch("MegaCrit.Sts2.Core.Logging.Logger:GetIsRunningFromGodotEditor", nameof(ReturnFalse));
         Patch("MegaCrit.Sts2.Core.Logging.ConsoleLogPrinter:Print", nameof(Skip));
-        MegaCrit.Sts2.Core.Logging.Log.LogCallback += (level, _, _) => { if (level == MegaCrit.Sts2.Core.Logging.LogLevel.Error) engineError = true; };
+        MegaCrit.Sts2.Core.Logging.Log.LogCallback += (level, text, _) => { if (level == MegaCrit.Sts2.Core.Logging.LogLevel.Error) { engineError = true; engineErrorText ??= FirstLine(text); engineErrorFull ??= text; } };
+        // SentryService's static constructor allocates Godot StringNames, which crashes a
+        // standalone worker without the native engine (0xC0000005). Never touch it here.
+        foreach (var sentry in AccessTools.GetDeclaredMethods(AccessTools.TypeByName("MegaCrit.Sts2.Core.Debug.SentryService"))
+                     .Where(m => m.IsStatic && m.Name is "CaptureException" or "CaptureMessage" or "AddBreadcrumb" or "SetTag" or "SetExtra"))
+            patches.Patch(sentry, prefix: new HarmonyMethod(typeof(Engine), nameof(Skip)));
+        // Other mods' initializers print through Godot (GD.Print), which is native-only here.
+        foreach (var gd in AccessTools.GetDeclaredMethods(typeof(Godot.GD))
+                     .Where(m => m.IsStatic && m.ReturnType == typeof(void) && (m.Name.StartsWith("Print") || m.Name.StartsWith("Push"))))
+            patches.Patch(gd, prefix: new HarmonyMethod(typeof(Engine), nameof(Skip)));
         patches.Patch(AccessTools.Method("MegaCrit.Sts2.Core.Localization.LocString:GetFormattedText", Type.EmptyTypes), prefix: new HarmonyMethod(typeof(Engine), nameof(EmptyText)));
+        // Event rooms log their options' raw text on entry; the worker has no localization tables.
+        patches.Patch(AccessTools.Method("MegaCrit.Sts2.Core.Localization.LocString:GetRawText", Type.EmptyTypes), prefix: new HarmonyMethod(typeof(Engine), nameof(EmptyText)));
         patches.Patch(AccessTools.Method("MegaCrit.Sts2.Core.Localization.LocString:Exists", [typeof(string), typeof(string)]), prefix: new HarmonyMethod(typeof(Engine), nameof(ReturnTrue)));
         Patch("MegaCrit.Sts2.Core.Commands.TalkCmd:Play", nameof(Skip));
+        // Save migrations (v0.111+) touch Controller's static constructor, which needs native Godot.
+        // The worker only uses the in-memory TestMode store, so it has nothing to migrate.
+        Patch("MegaCrit.Sts2.Core.Saves.Migrations.MigrationRegistry:RegisterAllMigrations", nameof(Skip));
+        // CommandLineHelper's static constructor builds a Godot Dictionary (native). The worker has no game arguments.
+        Patch("MegaCrit.Sts2.Core.Helpers.CommandLineHelper:HasArg", nameof(ReturnFalse));
+        Patch("MegaCrit.Sts2.Core.Helpers.CommandLineHelper:TryGetValue", nameof(NoCommandLineValue));
+        Patch("MegaCrit.Sts2.Core.Helpers.CommandLineHelper:GetValue", nameof(NullString));
+        // PlatformUtil's static constructor creates a GodotFileIo (native DirAccess). Only the branch is needed, for the peer version.
+        Patch("MegaCrit.Sts2.Core.Platform.PlatformUtil:GetPlatformBranch", nameof(DefaultBranch));
         Patch("MegaCrit.Sts2.Core.Debug.ReleaseInfoManager:LoadConfig", nameof(Skip));
         // Replay export bypasses SaveManager's in-memory store: explicitly disable disk export.
         Patch("MegaCrit.Sts2.Core.Runs.RunManager:WriteReplay", nameof(Skip));
@@ -67,6 +90,9 @@ internal static class Engine
         patches.Patch(AccessTools.Method(play, "MoveNext"), transpiler: new HarmonyMethod(typeof(Engine), nameof(ReplaceAnimationClock)));
         var end = AccessTools.Method(typeof(CombatManager), "EndCombatInternal").GetCustomAttribute<AsyncStateMachineAttribute>()!.StateMachineType;
         patches.Patch(AccessTools.Method(end, "MoveNext"), transpiler: new HarmonyMethod(typeof(Engine), nameof(RemoveTooltipCleanup)));
+        // v0.111 moved the combat-end body into an EndCombatInternal(CombatTurnState) overload; drop the
+        // tooltip cleanup at its source instead (NHoverTipSet's static constructor needs native Godot).
+        Patch("MegaCrit.Sts2.Core.Nodes.HoverTips.NHoverTipSet:Clear", nameof(Skip));
         // DecimillipedeSegment.ReattachMove performs a presentation-only texture load even
         // in TestMode. A standalone worker has no native Godot ResourceLoader, so replace
         // that one load while preserving the move's gameplay effects.
@@ -74,7 +100,20 @@ internal static class Engine
             .GetCustomAttribute<AsyncStateMachineAttribute>()!.StateMachineType;
         patches.Patch(AccessTools.Method(reattach, "MoveNext"), transpiler: new HarmonyMethod(typeof(Engine), nameof(RemoveReattachTextureLoad)));
         Patch("MegaCrit.Sts2.Core.GameActions.Multiplayer.PlayerChoiceSynchronizer:ReserveChoiceId", nameof(ObserveChoice));
+        // WaterfallGiant only advances its pressure counter outside TestMode (with Spine/music
+        // side effects). Keep the gameplay-visible counter, drop the presentation.
+        Patch("MegaCrit.Sts2.Core.Models.Monsters.WaterfallGiant:IncrementBuildUpAnimationTrack", nameof(IncrementPressureOnly));
         var registeredMods = (List<Mod>)AccessTools.Field(typeof(ModManager), "_mods").GetValue(null)!;
+        // Mods may ship companion assemblies next to them (BaseLib 3.4+ needs BaseLibCompatibilityHelper).
+        AssemblyLoadContext.Default.Resolving += (context, name) =>
+        {
+            foreach (var mod in registeredMods)
+            {
+                string candidate = Path.Combine(mod.path, name.Name + ".dll");
+                if (File.Exists(candidate)) return context.LoadFromAssemblyPath(candidate);
+            }
+            return null;
+        };
         if (baseLib)
         {
             var descriptor = requestedMods.FirstOrDefault(mod => mod.Id == "BaseLib");
@@ -86,12 +125,16 @@ internal static class Engine
         foreach (var mod in externalMods) RegisterModAssembly(registeredMods, mod, initialize: false);
         foreach (var mod in externalMods.Where(mod => mod.AffectsGameplay))
             InitializeModAssembly(registeredMods.Single(loaded => loaded.manifest?.id == mod.Id));
-        ModelIdSerializationCache.Init();
-        ActionTypes.Initialize();
+        // Same order as OneTimeInitialization.ExecuteEssential (game v0.111+).
+        AssemblyInfo.Init();
         ModelDb.Init();
+        ModelIdSerializationCache.Init();
         ModelDb.InitIds();
+        ActionTypes.Initialize();
         AccessTools.Field(typeof(MegaCrit.Sts2.Core.Saves.SaveManager), "_currentProfileId").SetValue(MegaCrit.Sts2.Core.Saves.SaveManager.Instance, (int?)1);
         MegaCrit.Sts2.Core.Saves.SaveManager.Instance.InitProgressData();
+        // Cards such as Neutralize read PrefsSave (animation timing only); without it they throw.
+        MegaCrit.Sts2.Core.Saves.SaveManager.Instance.InitPrefsDataForTest();
         loadedBaseLib = baseLib;
         loadedModSignature = requestedSignature;
         initialized = true;
@@ -110,7 +153,7 @@ internal static class Engine
             throw new InvalidOperationException($"Mod assembly identity mismatch for {descriptor.Id}");
         registeredMods.Add(new Mod
         {
-            path = Path.GetDirectoryName(path)!, assembly = assembly, state = ModLoadState.Loaded,
+            path = Path.GetDirectoryName(path)!, assemblies = [assembly], state = ModLoadState.Loaded,
             manifest = new ModManifest { id = descriptor.Id, version = descriptor.Version, affectsGameplay = descriptor.AffectsGameplay }
         });
         if (initialize) InitializeModAssembly(registeredMods[^1]);
@@ -118,7 +161,7 @@ internal static class Engine
 
     private static void InitializeModAssembly(Mod mod)
     {
-        var assembly = mod.assembly!;
+        var assembly = mod.assemblies[0];
         var initializers = assembly.GetTypes().Where(type => type.GetCustomAttribute<ModInitializerAttribute>() != null).ToArray();
         if (initializers.Length == 0)
         {
@@ -151,6 +194,46 @@ internal static class Engine
     private static bool ReturnFalse(ref bool __result) { __result = false; return false; }
     private static bool ReturnTrue(ref bool __result) { __result = true; return false; }
     private static bool Skip() => false;
+
+    private static bool NoCommandLineValue(ref string? __1, ref bool __result)
+    {
+        __1 = null;
+        __result = false;
+        return false;
+    }
+
+    private static bool DefaultBranch(ref MegaCrit.Sts2.Core.Platform.PlatformBranch __result)
+    {
+        __result = default;
+        return false;
+    }
+
+    private static bool NullString(ref string? __result)
+    {
+        __result = null;
+        return false;
+    }
+    private static bool IncrementPressureOnly(object __instance)
+    {
+        var property = Traverse.Create(__instance).Property("PressureBuildupIdx");
+        property.SetValue(property.GetValue<int>() + 1);
+        return false;
+    }
+    // Keeps the last failing request so it can be replayed offline with --replay-file=<path>.
+    private static void DumpFailure(string json, string error)
+    {
+        try
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "EndTurnDamagePreview");
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "last-failed-request.json"), json);
+            File.WriteAllText(Path.Combine(dir, "last-failed-error.txt"), error);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+    private static string? FirstLine(string? text) => text?.Split('\n', 2)[0].Trim();
+    private static string ErrorSuffix() => string.IsNullOrEmpty(engineErrorText) ? "" : ": " + engineErrorText;
     private static bool EmptyText(ref string __result) { __result = ""; return false; }
     private static void ObserveChoice() { if (forecasting) { futureChoice = true; throw new InvalidOperationException("Future player choice required"); } }
 
@@ -217,7 +300,11 @@ internal static class Engine
         var replay = reader.Read<CombatReplay>();
         if (replay.serializableRun.Players.Count != 1) return Unknown("Multiplayer not supported");
 
-        var exact = await RunForecastAttempt(request, replay, null);
+        ForecastAttempt exact;
+        try { exact = await RunForecastAttempt(request, replay, null); }
+        catch (Exception ex) { DumpFailure(json, ex.ToString()); throw; }
+        if (engineErrorFull != null) DumpFailure(json, engineErrorFull);
+        else if (exact.Result.Status.StartsWith("Combat state mismatch", StringComparison.Ordinal)) DumpFailure(json, exact.Result.Status);
         if (!exact.Result.Verified) return exact.Result;
 
         // MonsterAi rolls select a later visible intent after the current enemy turn,
@@ -248,16 +335,18 @@ internal static class Engine
     private static async Task<ForecastAttempt> RunForecastAttempt(
         SimulationRequest request,
         CombatReplay replay,
-        IReadOnlyDictionary<RunRngType, uint>? rngOverrides)
+        IReadOnlyDictionary<RunRngType, ulong>? rngOverrides)
     {
         engineError = false;
+        engineErrorText = null;
+        engineErrorFull = null;
         futureChoice = false;
         forecasting = false;
         try
         {
             var state = RunState.FromSerializable(replay.serializableRun);
             var run = RunManager.Instance;
-            run.SetUpReplay(state, replay);
+            run.SetUpReplay(state, replay, state.Players[0].NetId);
             AccessTools.PropertySetter(typeof(RunManager), nameof(RunManager.ShouldSave)).Invoke(run, [false]);
             run.CombatStateSynchronizer.IsDisabled = true;
             run.Launch();
@@ -266,7 +355,16 @@ internal static class Engine
             run.ActionQueueSynchronizer.FastForwardHookId(replay.nextHookId);
             run.PlayerChoiceSynchronizer.FastForwardChoiceIds(replay.choiceIds);
             run.RewardsSetSynchronizer.FastForwardRewardIds(replay.rewardIds);
-            await run.LoadIntoLatestMapCoord(replay.serializableRun.PreFinishedRoom == null ? null : AbstractRoom.FromSerializable(replay.serializableRun.PreFinishedRoom, state));
+            if (request.EventEncounter == null)
+                await run.LoadIntoLatestMapCoord(replay.serializableRun.PreFinishedRoom == null ? null : AbstractRoom.FromSerializable(replay.serializableRun.PreFinishedRoom, state));
+            else
+            {
+                // Event combat: the snapshot was taken as the event option started the fight,
+                // so enter that encounter directly instead of replaying the event.
+                if (state.VisitedMapCoords.Count > 0) state.ActFloor = state.VisitedMapCoords[^1].row + 1;
+                var encounter = ModelDb.GetById<EncounterModel>(ModelId.Deserialize(request.EventEncounter)).ToMutable();
+                await (Task)enterRoom.Invoke(run, [new CombatRoom(encounter, state), false])!;
+            }
             foreach (var item in replay.events)
             {
                 switch (item.eventType)
@@ -295,7 +393,7 @@ internal static class Engine
             await run.ActionExecutor.FinishedExecutingActions();
             while (CombatManager.Instance.IsStarting || CombatManager.Instance.EndingPlayerTurnPhaseOne || CombatManager.Instance.EndingPlayerTurnPhaseTwo) await Task.Delay(1);
             var combat = CombatManager.Instance.DebugOnlyGetState();
-            if (engineError) return new(Unknown("Replay produced an engine error"), [], false, state.Rng.Seed);
+            if (engineError) return new(Unknown("Replay produced an engine error" + ErrorSuffix()), [], false, state.Rng.Seed);
             if (combat == null) return new(Unknown("Replay did not restore combat"), [], false, state.Rng.Seed);
             string actual = SimulationProtocol.Stamp(state, combat);
             if (actual != request.Baseline)
@@ -305,9 +403,9 @@ internal static class Engine
                 power.Id.ToString().Contains("STAMPEDE", StringComparison.OrdinalIgnoreCase)));
             if (rngOverrides != null)
                 foreach (var (type, seed) in rngOverrides) state.Rng.MockRng(type, seed);
-            var before = state.Rng.ToSerializable().Counters;
+            var before = state.Rng.ToSerializable().Rngs;
             var result = await Predict(state);
-            var after = state.Rng.ToSerializable().Counters;
+            var after = state.Rng.ToSerializable().Rngs;
             var used = before.Keys.Concat(after.Keys).Distinct()
                 .Where(type => before.GetValueOrDefault(type) != after.GetValueOrDefault(type))
                 .ToArray();
@@ -317,17 +415,22 @@ internal static class Engine
         {
             forecasting = false;
             if (RunManager.Instance.IsInProgress) RunManager.Instance.CleanUp(graceful: true);
+            // The forecast drives the turn by hand, so the combat's own turn loop stays parked on a signal that never
+            // comes. Forget it, or the next request's combat waits 10 s for it to finish and then logs an error.
+            turnLoopTaskField.SetValue(CombatManager.Instance, null);
         }
     }
 
-    private static uint MixSeed(uint seed, RunRngType type, int branch)
+    private static ulong MixSeed(ulong seed, RunRngType type, int branch)
     {
         unchecked
         {
-            uint value = seed ^ ((uint)type + 1u) * 0x9E3779B9u ^ (uint)branch * 0x85EBCA6Bu;
-            value ^= value >> 16;
-            value *= 0x7FEB352Du;
-            value ^= value >> 15;
+            ulong value = seed ^ ((ulong)type + 1ul) * 0x9E3779B97F4A7C15ul ^ (ulong)branch * 0xBF58476D1CE4E5B9ul;
+            value ^= value >> 30;
+            value *= 0xBF58476D1CE4E5B9ul;
+            value ^= value >> 27;
+            value *= 0x94D049BB133111EBul;
+            value ^= value >> 31;
             return value;
         }
     }
@@ -368,20 +471,57 @@ internal static class Engine
         {
             var manager = CombatManager.Instance;
             var petReferences = state.Players[0].PlayerCombatState?.Pets.ToArray() ?? [];
-            await manager.EndPlayerTurnPhaseOneInternal();
-            if (manager.IsInProgress) await manager.EndPlayerTurnPhaseTwoInternal();
-            if (manager.IsInProgress) await manager.SwitchFromPlayerToEnemySide();
+            // Same sequence the turn loop runs once every player is ready: end the player turn, play the
+            // enemy turn, then start the next player turn. Driven directly so the live turn loop stays parked.
+            object? turnState = turnStateField.GetValue(manager);
+            if (turnState == null) return Unknown("Combat is not running" + ErrorSuffix());
+            await TurnStep("EndPlayerTurnPhaseOneInternal", turnState);
+            if (manager.IsInProgress) await TurnStep("EndPlayerTurnPhaseTwoInternal", turnState);
+            if (manager.IsInProgress) await TurnStep("SwitchFromPlayerToEnemySide", turnState);
+            bool enemySide = manager.DebugOnlyGetState()?.CurrentSide == CombatSide.Enemy;
+            if (manager.IsInProgress) await TurnStep("StartTurn", turnState);
+            if (enemySide && manager.IsInProgress && manager.DebugOnlyGetState()?.CurrentSide == CombatSide.Player)
+                await TurnStep("StartTurn", turnState);
             await RunManager.Instance.ActionExecutor.FinishedExecutingActions();
             var player = state.Players[0].Creature;
             var pets = petReferences.Select((pet, index) => new SimulatedPetState(index,
                 pet.Monster?.Id.ToString() ?? "", pet.CurrentHp, pet.Block, pet.IsAlive,
                 pet.CurrentHp, pet.CurrentHp, pet.Block, pet.Block)).ToArray();
-            return futureChoice ? Unknown("Player choice required") : engineError ? Unknown("Simulation error")
+            return futureChoice ? Unknown("Player choice required") : engineError ? Unknown("Simulation error" + ErrorSuffix())
                 : new(true, player.CurrentHp, player.Block, pets, manager.IsInProgress ? "NEXT TURN" : "COMBAT ENDS",
                     false, player.CurrentHp, player.CurrentHp, player.Block, player.Block, [], 1);
         }
         catch (Exception) when (futureChoice) { return Unknown("Player choice required"); }
         finally { forecasting = false; }
+    }
+
+    private static readonly FieldInfo turnStateField = AccessTools.Field(typeof(CombatManager), "_turnState");
+    private static readonly FieldInfo turnLoopTaskField = AccessTools.Field(typeof(CombatManager), "_turnLoopTask");
+
+    /// <summary>Launches the combat turn loop and waits for the first player turn to be playable.</summary>
+    private static async Task StartFixtureCombat()
+    {
+        var manager = CombatManager.Instance;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnTurnStarted(CombatState _) => started.TrySetResult();
+        manager.TurnStarted += OnTurnStarted;
+        try
+        {
+            manager.AfterCombatRoomLoaded();
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            await RunManager.Instance.ActionExecutor.FinishedExecutingActions();
+        }
+        finally { manager.TurnStarted -= OnTurnStarted; }
+    }
+
+    private static Task TurnStep(string method, object turnState)
+    {
+        // StartTurn also takes an optional enemy-turn test hook; pass none.
+        bool startTurn = method == "StartTurn";
+        Type[] types = startTurn ? [turnState.GetType(), typeof(Func<Task>)] : [turnState.GetType()];
+        var info = AccessTools.Method(typeof(CombatManager), method, types)
+            ?? throw new MissingMethodException(nameof(CombatManager), method);
+        return (Task)info.Invoke(CombatManager.Instance, startTurn ? [turnState, null] : [turnState])!;
     }
 
     private static SimulationResult Unknown(string reason) =>
@@ -448,7 +588,7 @@ internal static class Engine
         foreach (var (monster, slot) in encounter.MonstersWithSlots) combat.AddCreature(combat.CreateCreature(monster, CombatSide.Enemy, slot));
         state.PushRoom(new CombatRoom(combat));
         CombatManager.Instance.SetUpCombat(combat);
-        await CombatManager.Instance.StartCombatInternal();
+        await StartFixtureCombat();
         if (scenario != "turns")
         {
             var player = state.Players[0];
@@ -481,7 +621,8 @@ internal static class Engine
                 case "choice":
                     await CardPileCmd.Add(combat.CreateCard<MegaCrit.Sts2.Core.Models.Cards.StrikeIronclad>(player), MegaCrit.Sts2.Core.Entities.Cards.PileType.Hand);
                     await CardPileCmd.Add(combat.CreateCard<MegaCrit.Sts2.Core.Models.Cards.DefendIronclad>(player), MegaCrit.Sts2.Core.Entities.Cards.PileType.Hand);
-                    await PowerCmd.Apply<MegaCrit.Sts2.Core.Models.Powers.WellLaidPlansPower>(context, player.Creature, 1, player.Creature, null);
+                    // Tools of the Trade asks which card to discard when the next turn starts (Well-Laid Plans no longer asks since v0.111).
+                    await PowerCmd.Apply<MegaCrit.Sts2.Core.Models.Powers.ToolsOfTheTradePower>(context, player.Creature, 1, player.Creature, null);
                     break;
                 case "lethal-burn":
                     player.Creature.SetCurrentHpInternal(1);
@@ -532,7 +673,7 @@ internal static class Engine
         }
     }
 
-    internal static async Task<string> Fixture(string data, bool baseLib, bool logExpected = true, SimulationMod[]? mods = null)
+    internal static async Task<string> Fixture(string data, bool baseLib, bool logExpected = true, SimulationMod[]? mods = null, bool eventCombat = false)
     {
         mods ??= [];
         Initialize(data, baseLib, mods);
@@ -548,7 +689,20 @@ internal static class Engine
             run.CombatReplayWriter.IsEnabled = true;
             var point = state.Map.GetAllMapPoints().First(p => p.PointType == MegaCrit.Sts2.Core.Map.MapPointType.Monster);
             state.AddVisitedMapCoord(point.coord);
-            await run.LoadIntoLatestMapCoord(null);
+            string? eventEncounter = null;
+            if (!eventCombat) await run.LoadIntoLatestMapCoord(null);
+            else
+            {
+                // Mirrors an event option starting a fight: the run changed after the map point was
+                // entered (HP lost in the event), then the client snapshot is taken at combat entry.
+                state.ActFloor = point.coord.row + 1;
+                player.Creature.SetCurrentHpInternal(player.Creature.CurrentHp - 7m);
+                run.CombatReplayWriter.IsEnabled = true;
+                run.CombatReplayWriter.RecordInitialState(run.ToSave(null));
+                var encounter = ModelDb.Encounter<MegaCrit.Sts2.Core.Models.Encounters.DenseVegetationEventEncounter>();
+                eventEncounter = encounter.Id.ToString();
+                await (Task)enterRoom.Invoke(run, [new CombatRoom(encounter.ToMutable(), state), false])!;
+            }
             while (CombatManager.Instance.IsStarting) await Task.Delay(1);
             await run.ActionExecutor.FinishedExecutingActions();
             var combat = CombatManager.Instance.DebugOnlyGetState()!;
@@ -567,7 +721,7 @@ internal static class Engine
             }
             var replay = (CombatReplay)AccessTools.Field(typeof(CombatReplayWriter), "_replay").GetValue(run.CombatReplayWriter)!;
             var request = new SimulationRequest(SimulationProtocol.Pack(replay), SimulationProtocol.Stamp(state, combat), ModelIdSerializationCache.Hash,
-                typeof(CombatState).Module.ModuleVersionId.ToString(), baseLib, mods);
+                typeof(CombatState).Module.ModuleVersionId.ToString(), baseLib, mods, eventEncounter);
             var expected = await Predict(state);
             if (logExpected) Console.Error.WriteLine("Expected " + JsonSerializer.Serialize(expected));
             return JsonSerializer.Serialize(request);

@@ -34,8 +34,13 @@ foreach ($scenario in @('turns','burn','block-expiry','barricade','regen','poiso
 $fixture = & dotnet $worker $data --fixture --baselib
 if ($LASTEXITCODE -ne 0) { throw 'Fixture failed' }
 $result = ($fixture | dotnet $worker $data) | ConvertFrom-Json
-if ($LASTEXITCODE -ne 0 -or !$result.Verified -or $result.Hp -ne 65 -or $result.Block -ne 0) { throw 'Replay mismatch' }
-Write-Output 'PASS independent replay: 65 HP, 0 block'
+if ($LASTEXITCODE -ne 0 -or !$result.Verified -or $result.Hp -ne 70 -or $result.Block -ne 0) { throw 'Replay mismatch' }
+Write-Output 'PASS independent replay: 70 HP, 0 block'
+$fixture = & dotnet $worker $data --fixture --event --baselib
+if ($LASTEXITCODE -ne 0) { throw 'Event fixture failed' }
+$result = ($fixture | dotnet $worker $data) | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or !$result.Verified -or $result.Hp -ne 25 -or $result.Block -ne 0) { throw 'Event combat replay mismatch' }
+Write-Output 'PASS event combat replay: 25 HP, 0 block'
 $psi = [System.Diagnostics.ProcessStartInfo]::new('dotnet')
 $psi.UseShellExecute = $false
 $psi.RedirectStandardInput = $true
@@ -50,7 +55,7 @@ if ($server.StandardOutput.ReadLine() -ne 'READY') { throw 'Warm simulator did n
 foreach ($iteration in 1..5) {
     $server.StandardInput.WriteLine($fixture)
     $warm = $server.StandardOutput.ReadLine() | ConvertFrom-Json
-    if (!$warm.Result.Verified -or $warm.Result.Hp -ne 65 -or $warm.ElapsedMs -gt 100) {
+    if (!$warm.Result.Verified -or $warm.Result.Hp -ne 70 -or $warm.ElapsedMs -gt 100) {
         throw "Warm simulation failed or exceeded 100 ms: $($warm | ConvertTo-Json -Compress)"
     }
 }
@@ -66,7 +71,7 @@ Write-Output 'PASS divergent baseline rejected'
 $request = $fixture | ConvertFrom-Json
 $request.Mods = @([pscustomobject]@{ Id='CompatibilityTest'; Version='1.0.0'; AffectsGameplay=$false; AssemblyPath=$null; ModuleVersionId=$null })
 $result = (($request | ConvertTo-Json -Depth 8 -Compress) | dotnet $worker $data) | ConvertFrom-Json
-if ($LASTEXITCODE -ne 0 -or !$result.Verified -or $result.Hp -ne 65) { throw 'Additional non-assembly mod was rejected' }
+if ($LASTEXITCODE -ne 0 -or !$result.Verified -or $result.Hp -ne 70) { throw 'Additional non-assembly mod was rejected' }
 Write-Output 'PASS additional mod accepted without a closed allowlist'
 $request.GameModule = 'unsupported-build'
 $result = (($request | ConvertTo-Json -Depth 8 -Compress) | dotnet $worker $data) | ConvertFrom-Json

@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.17.2
+
+- Fixed the preview worker crashing at startup when another mod (e.g. Talent Shards) prints through Godot in its initializer: the worker now ignores Godot print calls.
+
+## 0.17.1
+
+- Fixed the live preview worker crashing at startup on game v0.111.1: it inherited the game's Sentry library path and tried to load Sentry's native library without the engine.
+
+## 0.17.0
+
+- Updated for game v0.111.1 (requires BaseLib 3.4.8+):
+  - the simulator follows the new combat turn loop when it plays the end of the turn;
+  - mod assemblies, the 64-bit run seed and the new RNG save format are handled;
+  - the simulator stubs the new native-only startup paths (save migrations, command line, platform info, hover tips);
+  - BaseLib's companion assembly is resolved from its mod folder;
+  - the event-combat snapshot hook no longer depends on a renamed parameter.
+- The choice test now uses Tools of the Trade (Well-Laid Plans no longer asks for a choice).
+
+## 0.16.6
+
+- Fixed forecasts for combats started from an event option (e.g. Dense Vegetation): the mod now snapshots the run when the event starts the fight, and the simulator enters that encounter directly instead of replaying the event.
+- Added an event-combat replay regression test.
+
+## 0.16.5
+
+- Fixed the simulator crashing on combats started from an event (e.g. Dense Vegetation): event option text is no longer resolved in the worker.
+- Requests that crash the simulator are now saved for offline replay as well.
+
+## 0.16.4
+
+- Fixed forecasts being rejected against the Waterfall Giant: the simulator now advances its pressure counter like the live game, without the animation side effects.
+- Combat state mismatches are now saved for offline replay as well.
+
+## 0.16.3
+
+- Fixed forecasts failing for the rest of a combat after Neutralize (and other cards reading player preferences) was played: the simulator now initializes default preferences.
+
+## 0.16.2
+
+- Corrected the version string reported in the game log.
+- Saved the last failing simulation request and full engine error to %TEMP%/EndTurnDamagePreview for offline replay (`--replay-file=`).
+
+## 0.16.1
+
+- Fixed a simulator crash (0xC0000005) when a game action failed: the worker no longer touches the game's Sentry reporter, which requires the native Godot engine.
+- Simulation errors now include the first engine error line in the diagnostic log.
+
 ## 0.16.0
 
 - Prevented forecasts from revealing one seeded outcome for damage-relevant hidden combat randomness.

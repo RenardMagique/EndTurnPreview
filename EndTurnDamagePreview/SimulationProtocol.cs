@@ -11,7 +11,10 @@ using MegaCrit.Sts2.Core.Models;
 namespace EndTurnDamagePreview;
 
 public sealed record SimulationMod(string Id, string Version, bool AffectsGameplay, string? AssemblyPath, string? ModuleVersionId);
-public sealed record SimulationRequest(string Replay, string Baseline, uint ModelHash, string GameModule, bool BaseLib, SimulationMod[] Mods);
+// EventEncounter is set when the combat was started from an event option: Replay then starts
+// at that moment (the game's own replay starts at the event, whose option choices are not recorded).
+public sealed record SimulationRequest(string Replay, string Baseline, uint ModelHash, string GameModule, bool BaseLib, SimulationMod[] Mods,
+    string? EventEncounter = null);
 public sealed record SimulatedPetState(
     int Index, string ModelId, int Hp, int Block, bool Alive,
     int MinHp, int MaxHp, int MinBlock, int MaxBlock);
