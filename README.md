@@ -1,8 +1,8 @@
-# End Turn Preview v0.16.0
+# End Turn Preview v0.17.2
 
 Author: Renard Magique
 
-End Turn Preview simulates the rest of the current turn and displays the result directly on the native health bars of the player and their pets. It requires Slay the Spire 2 v0.107.1 or newer with BaseLib 3.3.8. Windows x64 is tested; native Linux x64 remains experimental.
+End Turn Preview simulates the rest of the current turn and displays the result directly on the native health bars of the player and their pets. It requires Slay the Spire 2 v0.111.1 or newer with BaseLib 3.4.8. Windows x64 is tested; native Linux x64 remains experimental.
 
 ## Features
 
@@ -31,8 +31,8 @@ The mod does not use screen coordinates or assume a specific viewport size. It m
 
 ## Requirements
 
-- Slay the Spire 2 v0.107.1 or newer
-- BaseLib 3.3.8 or newer
+- Slay the Spire 2 v0.111.1 or newer
+- BaseLib 3.4.8 or newer
 - Windows x64
 - Native Linux x64 is experimental and not yet certified
 - .NET 9 Runtime
