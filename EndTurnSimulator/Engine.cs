@@ -293,8 +293,14 @@ internal static class Engine
     {
         var request = JsonSerializer.Deserialize<SimulationRequest>(json) ?? throw new InvalidDataException();
         Initialize(data, request.BaseLib, request.Mods);
-        if (typeof(CombatState).Module.ModuleVersionId.ToString() != request.GameModule || ModelIdSerializationCache.Hash != request.ModelHash)
+        if (typeof(CombatState).Module.ModuleVersionId.ToString() != request.GameModule)
             return Unknown("Engine version mismatch");
+        // Gameplay mods (e.g. Talent Shards) make the live model hash depend on when BaseLib registers their
+        // saved properties, so it can differ from the worker's although the same assemblies are loaded (their
+        // module identities are checked when they are registered). The replayed state stamp still guards the forecast.
+        bool gameplayMods = request.Mods.Any(mod => mod.AffectsGameplay && mod.Id is not ("BaseLib" or "EndTurnDamagePreview"));
+        if (!gameplayMods && ModelIdSerializationCache.Hash != request.ModelHash)
+            return Unknown($"Engine version mismatch (model hash {ModelIdSerializationCache.Hash} vs {request.ModelHash})");
         var reader = new PacketReader();
         reader.Reset(Convert.FromBase64String(request.Replay));
         var replay = reader.Read<CombatReplay>();

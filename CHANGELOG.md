@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.2-ts (talentshards branch)
+
+- Forecasts work with Talent Shards: the model hash check is skipped when a gameplay mod is loaded (mod assemblies and the replayed combat state are still verified).
+
 ## 0.17.2
 
 - Fixed the preview worker crashing at startup when another mod (e.g. Talent Shards) prints through Godot in its initializer: the worker now ignores Godot print calls.
