@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.8-ts (talentshards branch)
+
+- Fixed "Combat state mismatch" against The Insatiable: Sandpit animation fields are no longer compared.
+
 ## 0.17.7-ts (talentshards branch)
 
 - Fixed the Shard Pouch being replaced by a deprecated relic in the simulator: it now applies BaseLib's mod ID prefix (e.g. RELIC.TALENTSHARDS-SHARD_POUCH).
