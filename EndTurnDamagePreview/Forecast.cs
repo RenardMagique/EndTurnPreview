@@ -11,9 +11,15 @@ internal readonly record struct Forecast(
     internal static Forecast FromResult(SimulationResult result, Creature creature)
     {
         if (!result.Verified) return Pending(result.Status);
+        // Coop: every player has an entry; older results only describe the local player.
+        var owner = creature.IsPlayer ? creature.Player : creature.IsPet ? creature.PetOwner : null;
+        var entry = owner == null ? null : result.Players?.FirstOrDefault(p => p.NetId == owner.NetId);
+        if (result.Players != null && entry == null) return Pending("Player forecast unavailable");
         if (creature.IsPlayer)
-            return Create(creature, result.MinHp, result.MaxHp, result.MinBlock, result.MaxBlock,
-                result.Randomized, result.Status);
+            return entry == null
+                ? Create(creature, result.MinHp, result.MaxHp, result.MinBlock, result.MaxBlock, result.Randomized, result.Status)
+                : Create(creature, entry.MinHp, entry.MaxHp, entry.MinBlock, entry.MaxBlock,
+                    entry.MinHp != entry.MaxHp || entry.MinBlock != entry.MaxBlock, result.Status);
         if (!creature.IsPet || creature.PetOwner?.PlayerCombatState == null) return Pending("Unsupported creature");
 
         var pets = creature.PetOwner.PlayerCombatState.Pets;
@@ -23,7 +29,7 @@ internal readonly record struct Forecast(
         if (index < 0) return Pending("Pet unavailable");
 
         string modelId = creature.Monster?.Id.ToString() ?? "";
-        var pet = result.Pets.FirstOrDefault(p => p.Index == index && p.ModelId == modelId);
+        var pet = (entry?.Pets ?? result.Pets).FirstOrDefault(p => p.Index == index && p.ModelId == modelId);
         return pet == null ? Pending("Pet forecast unavailable")
             : Create(creature, pet.MinHp, pet.MaxHp, pet.MinBlock, pet.MaxBlock,
                 pet.MinHp != pet.MaxHp || pet.MinBlock != pet.MaxBlock, result.Status);

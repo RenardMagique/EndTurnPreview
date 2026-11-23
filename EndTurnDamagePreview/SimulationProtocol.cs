@@ -17,14 +17,19 @@ public sealed record SimulationRequest(string Replay, string Baseline, uint Mode
     string? EventEncounter = null,
     // The live net-ID tables (categories, entries, epochs, saved properties). BaseLib and gameplay mods
     // (e.g. Talent Shards) can make them differ from the worker's, which would misread the replay.
-    string[][]? IdTables = null);
+    string[][]? IdTables = null,
+    // Coop: the local player's net ID. The top-level result fields describe this player.
+    ulong? LocalNetId = null);
 public sealed record SimulatedPetState(
     int Index, string ModelId, int Hp, int Block, bool Alive,
     int MinHp, int MaxHp, int MinBlock, int MaxBlock);
 public sealed record SimulationResult(
     bool Verified, int Hp, int Block, SimulatedPetState[] Pets, string Status,
     bool Randomized, int MinHp, int MaxHp, int MinBlock, int MaxBlock,
-    string[] RandomSources, int Branches);
+    string[] RandomSources, int Branches,
+    // Every player's forecast (coop). Null from older workers: only the top-level player is known.
+    SimulatedPlayerState[]? Players = null);
+public sealed record SimulatedPlayerState(ulong NetId, int MinHp, int MaxHp, int MinBlock, int MaxBlock, SimulatedPetState[] Pets);
 public sealed record SimulationServerResponse(SimulationResult Result, long ElapsedMs);
 
 public static class SimulationProtocol

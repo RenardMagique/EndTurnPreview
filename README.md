@@ -84,7 +84,7 @@ The shortcut can reveal the preview in any of the three modes, including **Disab
 
 The simulator receives immutable replay bytes and runs with the game's in-memory test save backend. It does not load, replace or write normal save files. Game libraries are loaded from the local installation and are not redistributed.
 
-Multiplayer remains unsupported because the current result protocol represents one player. Additional mods are no longer rejected in advance: their managed assemblies are loaded in the isolated worker, and mods declaring gameplay changes are initialized there on a best-effort basis. A mod that depends on unavailable presentation or native Godot services may still make its forecast unavailable, but it will not disable End Turn Preview merely by being installed.
+In coop, every player's health bar shows a forecast that assumes all players end their turn now. Additional mods are no longer rejected in advance: their managed assemblies are loaded in the isolated worker, and mods declaring gameplay changes are initialized there on a best-effort basis. A mod that depends on unavailable presentation or native Godot services may still make its forecast unavailable, but it will not disable End Turn Preview merely by being installed.
 
 There is no closed game-version allowlist. The worker instead requires its engine module, model hash and loaded mod identities to match the live game for every request. The forecast is also withheld while actions are still resolving or when the simulation requires a future player choice.
 

@@ -168,11 +168,6 @@ internal static class SimulationClient
     {
         var run = RunManager.Instance;
         diagnosticContext = Describe(combat);
-        if (combat.Players.Count != 1)
-        {
-            dirty = false;
-            return DiagnosticPending("Multiplayer not supported");
-        }
         if (run.ActionExecutor.IsRunning || CombatManager.Instance.IsStarting)
             return Forecast.Pending("Waiting for action…");
 
@@ -193,7 +188,8 @@ internal static class SimulationClient
         var request = new SimulationRequest(SimulationProtocol.Pack(replay), stamp, ModelIdSerializationCache.Hash,
             typeof(CombatState).Module.ModuleVersionId.ToString(), loadedMods.Any(mod => mod.Id == "BaseLib"), loadedMods, encounter,
             SimulationProtocol.IdTableNames.Select(name =>
-                HarmonyLib.AccessTools.StaticFieldRefAccess<List<string>>(typeof(ModelIdSerializationCache), "_netIdTo" + name + "NameMap").ToArray()).ToArray());
+                HarmonyLib.AccessTools.StaticFieldRefAccess<List<string>>(typeof(ModelIdSerializationCache), "_netIdTo" + name + "NameMap").ToArray()).ToArray(),
+            MegaCrit.Sts2.Core.Context.LocalContext.NetId);
         computation = session == null
             ? Task.FromResult(Unavailable("Simulator unavailable"))
             : session.Simulate(JsonSerializer.Serialize(request));

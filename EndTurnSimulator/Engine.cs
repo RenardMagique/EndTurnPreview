@@ -106,6 +106,9 @@ internal static class Engine
         // Each replay starts a fresh combat. v0.111 waits up to 10s for the previous combat's turn loop, which in
         // the worker stays suspended forever after teardown; that wait made every forecast miss its deadline.
         Patch("MegaCrit.Sts2.Core.Combat.CombatManager:WaitForPreviousTurnLoopToFinish", nameof(NoTurnLoopWait));
+        // Public beta: temporary sound effects go through a Godot node whose static setup needs native Godot.
+        if (AccessTools.TypeByName("MegaCrit.Sts2.Core.Audio.Debug.NDebugAudioManager") is { } debugAudio)
+            patches.Patch(AccessTools.PropertyGetter(debugAudio, "Instance"), prefix: new HarmonyMethod(typeof(Engine), nameof(ReturnNullObject)));
         var registeredMods = (List<Mod>)AccessTools.Field(typeof(ModManager), "_mods").GetValue(null)!;
         // Mods may ship companion assemblies next to them (BaseLib 3.4+ needs BaseLibCompatibilityHelper).
         AssemblyLoadContext.Default.Resolving += (context, name) =>
@@ -198,6 +201,7 @@ internal static class Engine
     private static bool ReturnFalse(ref bool __result) { __result = false; return false; }
     private static bool ReturnTrue(ref bool __result) { __result = true; return false; }
     private static bool Skip() => false;
+    private static bool ReturnNullObject(ref object? __result) { __result = null; return false; }
 
     // With a gameplay mod that depends on BaseLib, the live game prefixes mod model IDs and runs BaseLib's extended saves: every saved card,
     // relic, potion, reward, player and run carries extra BaseLib data (e.g. card modifiers). Without the same
@@ -289,17 +293,22 @@ internal static class Engine
     }
     private static bool enemyTurnDone;
     private static SimulationResult? choiceSnapshot;
-    private static IReadOnlyList<MegaCrit.Sts2.Core.Entities.Creatures.Creature> forecastPets = [];
+    private static Dictionary<ulong, MegaCrit.Sts2.Core.Entities.Creatures.Creature[]> forecastPets = [];
     private static RunState? forecastState;
+    private static ulong forecastLocalId;
     private static SimulationResult Snapshot()
     {
         var manager = CombatManager.Instance;
-        var player = forecastState!.Players[0].Creature;
-        var pets = forecastPets.Select((pet, index) => new SimulatedPetState(index,
-            pet.Monster?.Id.ToString() ?? "", pet.CurrentHp, pet.Block, pet.IsAlive,
-            pet.CurrentHp, pet.CurrentHp, pet.Block, pet.Block)).ToArray();
-        return new(true, player.CurrentHp, player.Block, pets, manager.IsInProgress ? "NEXT TURN" : "COMBAT ENDS",
-            false, player.CurrentHp, player.CurrentHp, player.Block, player.Block, [], 1);
+        var players = forecastState!.Players.Select(p =>
+        {
+            var pets = forecastPets.GetValueOrDefault(p.NetId, []).Select((pet, index) => new SimulatedPetState(index,
+                pet.Monster?.Id.ToString() ?? "", pet.CurrentHp, pet.Block, pet.IsAlive,
+                pet.CurrentHp, pet.CurrentHp, pet.Block, pet.Block)).ToArray();
+            return new SimulatedPlayerState(p.NetId, p.Creature.CurrentHp, p.Creature.CurrentHp, p.Creature.Block, p.Creature.Block, pets);
+        }).ToArray();
+        var local = players.FirstOrDefault(p => p.NetId == forecastLocalId) ?? players[0];
+        return new(true, local.MinHp, local.MinBlock, local.Pets, manager.IsInProgress ? "NEXT TURN" : "COMBAT ENDS",
+            false, local.MinHp, local.MaxHp, local.MinBlock, local.MaxBlock, [], 1, players);
     }
 
     private static IEnumerable<CodeInstruction> RemoveShuffleFrameTiming(IEnumerable<CodeInstruction> instructions)
@@ -378,7 +387,6 @@ internal static class Engine
         var reader = new PacketReader();
         reader.Reset(Convert.FromBase64String(request.Replay));
         var replay = reader.Read<CombatReplay>();
-        if (replay.serializableRun.Players.Count != 1) return Unknown("Multiplayer not supported");
 
         ForecastAttempt exact;
         try { exact = await RunForecastAttempt(request, replay, null); }
@@ -426,7 +434,8 @@ internal static class Engine
         {
             var state = RunState.FromSerializable(replay.serializableRun);
             var run = RunManager.Instance;
-            run.SetUpReplay(state, replay, state.Players[0].NetId);
+            forecastLocalId = request.LocalNetId is { } localId && state.Players.Any(p => p.NetId == localId) ? localId : state.Players[0].NetId;
+            run.SetUpReplay(state, replay, forecastLocalId);
             AccessTools.PropertySetter(typeof(RunManager), nameof(RunManager.ShouldSave)).Invoke(run, [false]);
             run.CombatStateSynchronizer.IsDisabled = true;
             run.Launch();
@@ -519,29 +528,34 @@ internal static class Engine
         IReadOnlyList<SimulationResult> outcomes,
         RunRngType[] sources)
     {
-        int minHp = outcomes.Min(result => result.Hp);
-        int maxHp = outcomes.Max(result => result.Hp);
-        int minBlock = outcomes.Min(result => result.Block);
-        int maxBlock = outcomes.Max(result => result.Block);
         var first = outcomes[0];
-        var pets = first.Pets.Select(pet =>
+        // Each outcome lists every player; older/test outcomes only carry the top-level player.
+        static SimulatedPlayerState[] PlayersOf(SimulationResult r) => r.Players
+            ?? [new SimulatedPlayerState(0, r.Hp, r.Hp, r.Block, r.Block, r.Pets)];
+        var players = PlayersOf(first).Select(player =>
         {
-            var variants = outcomes.SelectMany(result => result.Pets)
-                .Where(candidate => candidate.Index == pet.Index && candidate.ModelId == pet.ModelId)
-                .ToArray();
-            int petMinHp = variants.Min(candidate => candidate.Hp);
-            int petMaxHp = variants.Max(candidate => candidate.Hp);
-            int petMinBlock = variants.Min(candidate => candidate.Block);
-            int petMaxBlock = variants.Max(candidate => candidate.Block);
-            return new SimulatedPetState(pet.Index, pet.ModelId, petMinHp, petMinBlock,
-                variants.All(candidate => candidate.Alive), petMinHp, petMaxHp, petMinBlock, petMaxBlock);
+            var variants = outcomes.Select(r => PlayersOf(r).FirstOrDefault(c => c.NetId == player.NetId)).OfType<SimulatedPlayerState>().ToArray();
+            var pets = player.Pets.Select(pet =>
+            {
+                var petVariants = variants.SelectMany(v => v.Pets)
+                    .Where(candidate => candidate.Index == pet.Index && candidate.ModelId == pet.ModelId).ToArray();
+                int petMinHp = petVariants.Min(c => c.MinHp), petMaxHp = petVariants.Max(c => c.MaxHp);
+                int petMinBlock = petVariants.Min(c => c.MinBlock), petMaxBlock = petVariants.Max(c => c.MaxBlock);
+                return new SimulatedPetState(pet.Index, pet.ModelId, petMinHp, petMinBlock,
+                    petVariants.All(c => c.Alive), petMinHp, petMaxHp, petMinBlock, petMaxBlock);
+            }).ToArray();
+            return new SimulatedPlayerState(player.NetId, variants.Min(v => v.MinHp), variants.Max(v => v.MaxHp),
+                variants.Min(v => v.MinBlock), variants.Max(v => v.MaxBlock), pets);
         }).ToArray();
-        bool randomized = minHp != maxHp || minBlock != maxBlock || pets.Any(pet =>
-            pet.MinHp != pet.MaxHp || pet.MinBlock != pet.MaxBlock);
+        int localIndex = Math.Max(0, Array.FindIndex(players, p => p.NetId == forecastLocalId));
+        var local = players[localIndex];
+        bool randomized = players.Any(p => p.MinHp != p.MaxHp || p.MinBlock != p.MaxBlock
+            || p.Pets.Any(pet => pet.MinHp != pet.MaxHp || pet.MinBlock != pet.MaxBlock));
         string[] randomSources = randomized ? sources.Select(source => source.ToString()).ToArray() : [];
-        return new(true, minHp, minBlock, pets,
+        return new(true, local.MinHp, local.MinBlock, local.Pets,
             randomized ? first.Status + " (HIDDEN RANDOMNESS)" : first.Status,
-            randomized, minHp, maxHp, minBlock, maxBlock, randomSources, outcomes.Count);
+            randomized, local.MinHp, local.MaxHp, local.MinBlock, local.MaxBlock, randomSources, outcomes.Count,
+            first.Players == null ? null : players);
     }
 
     private static async Task<SimulationResult> Predict(RunState state)
@@ -553,7 +567,7 @@ internal static class Engine
         try
         {
             var manager = CombatManager.Instance;
-            forecastPets = state.Players[0].PlayerCombatState?.Pets.ToArray() ?? [];
+            forecastPets = state.Players.ToDictionary(p => p.NetId, p => p.PlayerCombatState?.Pets.ToArray() ?? []);
             // Same sequence the turn loop runs once every player is ready: end the player turn, play the
             // enemy turn, then start the next player turn. Driven directly so the live turn loop stays parked.
             object? turnState = turnStateField.GetValue(manager);

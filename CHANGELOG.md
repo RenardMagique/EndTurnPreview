@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.0-ts (talentshards branch)
+
+- Coop support: every player's health bar shows its forecast; the turn is simulated as if all players ended it now.
+- Public beta: fixed the simulator crashing when a card is drawn (new debug sound effects need Godot).
+
 ## 0.17.9-ts (talentshards branch)
 
 - A player choice at the start of the next turn (e.g. an optional exhaust) no longer blocks the forecast: it stops at that choice.
