@@ -128,6 +128,7 @@ internal static class Engine
         foreach (var mod in externalMods) RegisterModAssembly(registeredMods, mod, initialize: false);
         foreach (var mod in externalMods.Where(mod => mod.AffectsGameplay))
             InitializeModAssembly(registeredMods.Single(loaded => loaded.manifest?.id == mod.Id));
+        if (baseLib && externalMods.Any(mod => mod.AffectsGameplay)) EnableBaseLibExtendedSaves();
         // Same order as OneTimeInitialization.ExecuteEssential (game v0.111+).
         AssemblyInfo.Init();
         ModelDb.Init();
@@ -197,6 +198,23 @@ internal static class Engine
     private static bool ReturnFalse(ref bool __result) { __result = false; return false; }
     private static bool ReturnTrue(ref bool __result) { __result = true; return false; }
     private static bool Skip() => false;
+
+    // With a gameplay mod that depends on BaseLib, the live game runs BaseLib's extended saves: every saved card,
+    // relic, potion, reward, player and run carries extra BaseLib data (e.g. card modifiers). Without the same
+    // patches the worker misreads the replay after the first card. BaseLib's own initializer needs native Godot,
+    // so apply just these pieces.
+    private static void EnableBaseLibExtendedSaves()
+    {
+        var harmony = new Harmony("EndTurnSimulator.BaseLibExtendedSaves");
+        var patches = AccessTools.TypeByName("BaseLib.Patches.Saves.ExtendedSavePatches")
+            ?? throw new InvalidOperationException("BaseLib extended saves not found");
+        foreach (var nested in patches.GetNestedTypes(BindingFlags.NonPublic | BindingFlags.Public)
+                     .Where(type => type.GetCustomAttributes<HarmonyPatch>().Any()))
+            harmony.CreateClassProcessor(nested).Patch();
+        AccessTools.Method(patches, "Patch", [typeof(Harmony)]).Invoke(null, [harmony]);
+        AccessTools.PropertySetter(AccessTools.TypeByName("BaseLib.Patches.PostModInitPatch"), "CanModifyGameplay").Invoke(null, [true]);
+        AccessTools.Method(AccessTools.TypeByName("BaseLib.Abstracts.CardModifier"), "RegisterSave").Invoke(null, null);
+    }
 
     private static void UseLiveIdTables(string[][] tables)
     {
@@ -316,7 +334,7 @@ internal static class Engine
         {
             string dir = Path.Combine(Path.GetTempPath(), "EndTurnDamagePreview");
             Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, "last-request.json"), json);
+            if (json.Contains("\"IdTables\":[[")) File.WriteAllText(Path.Combine(dir, "last-request.json"), json);
         }
         catch { }
         var request = JsonSerializer.Deserialize<SimulationRequest>(json) ?? throw new InvalidDataException();

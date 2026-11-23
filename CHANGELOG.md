@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.6-ts (talentshards branch)
+
+- Fixed the simulator misreading Talent Shards runs: with a gameplay mod, BaseLib adds extended save data to every card, relic and player. The simulator now applies the same BaseLib save patches.
+
 ## 0.17.5-ts (talentshards branch)
 
 - The simulator now uses all of the live net-ID tables (categories, entries, epochs, saved properties): with Talent Shards the live game adds entries after startup.
