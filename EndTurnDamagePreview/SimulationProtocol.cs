@@ -184,6 +184,8 @@ public static class SimulationProtocol
     {
         // Happy Flower keeps this true for one second solely to animate its counter.
         // Replay speed changes that timing, but TurnsSeen remains the gameplay state.
-        return model is MegaCrit.Sts2.Core.Models.Relics.HappyFlower && field.Name == "_isActivating";
+        return (model is MegaCrit.Sts2.Core.Models.Relics.HappyFlower && field.Name == "_isActivating")
+            // Sandpit only stores these for its sliding animation, skipped in TestMode.
+            || (model is MegaCrit.Sts2.Core.Models.Powers.SandpitPower && field.Name is "_initialAmount" or "_initialTargetPosition");
     }
 }

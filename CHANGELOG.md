@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.4
+
+- Fixed "Combat state mismatch" against The Insatiable: Sandpit animation fields are no longer compared.
+
 ## 0.17.3
 
 - Fixed forecasts staying "pending": on game v0.111.1 each simulated combat waited 10 s for the previous one's turn loop. The simulator no longer waits.
