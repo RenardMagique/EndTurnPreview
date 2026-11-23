@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.3-ts (talentshards branch)
+
+- Fixed forecasts staying "pending": on game v0.111.1 each simulated combat waited 10 s for the previous one's turn loop. The simulator no longer waits.
+
 ## 0.17.2-ts (talentshards branch)
 
 - Forecasts work with Talent Shards: the model hash check is skipped when a gameplay mod is loaded (mod assemblies and the replayed combat state are still verified).

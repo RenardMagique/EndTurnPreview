@@ -103,6 +103,9 @@ internal static class Engine
         // WaterfallGiant only advances its pressure counter outside TestMode (with Spine/music
         // side effects). Keep the gameplay-visible counter, drop the presentation.
         Patch("MegaCrit.Sts2.Core.Models.Monsters.WaterfallGiant:IncrementBuildUpAnimationTrack", nameof(IncrementPressureOnly));
+        // Each replay starts a fresh combat. v0.111 waits up to 10s for the previous combat's turn loop, which in
+        // the worker stays suspended forever after teardown; that wait made every forecast miss its deadline.
+        Patch("MegaCrit.Sts2.Core.Combat.CombatManager:WaitForPreviousTurnLoopToFinish", nameof(NoTurnLoopWait));
         var registeredMods = (List<Mod>)AccessTools.Field(typeof(ModManager), "_mods").GetValue(null)!;
         // Mods may ship companion assemblies next to them (BaseLib 3.4+ needs BaseLibCompatibilityHelper).
         AssemblyLoadContext.Default.Resolving += (context, name) =>
@@ -194,6 +197,7 @@ internal static class Engine
     private static bool ReturnFalse(ref bool __result) { __result = false; return false; }
     private static bool ReturnTrue(ref bool __result) { __result = true; return false; }
     private static bool Skip() => false;
+    private static bool NoTurnLoopWait(ref Task __result) { __result = Task.CompletedTask; return false; }
 
     private static bool NoCommandLineValue(ref string? __1, ref bool __result)
     {
