@@ -199,7 +199,7 @@ internal static class Engine
     private static bool ReturnTrue(ref bool __result) { __result = true; return false; }
     private static bool Skip() => false;
 
-    // With a gameplay mod that depends on BaseLib, the live game runs BaseLib's extended saves: every saved card,
+    // With a gameplay mod that depends on BaseLib, the live game prefixes mod model IDs and runs BaseLib's extended saves: every saved card,
     // relic, potion, reward, player and run carries extra BaseLib data (e.g. card modifiers). Without the same
     // patches the worker misreads the replay after the first card. BaseLib's own initializer needs native Godot,
     // so apply just these pieces.
@@ -212,6 +212,10 @@ internal static class Engine
                      .Where(type => type.GetCustomAttributes<HarmonyPatch>().Any()))
             harmony.CreateClassProcessor(nested).Patch();
         AccessTools.Method(patches, "Patch", [typeof(Harmony)]).Invoke(null, [harmony]);
+        // BaseLib prefixes custom model IDs with their mod (e.g. RELIC.TALENTSHARDS-SHARD_POUCH); without it the
+        // worker cannot find saved mod content and replaces it with a deprecated relic.
+        harmony.CreateClassProcessor(AccessTools.TypeByName("BaseLib.Patches.Content.PrefixIdPatch")
+            ?? throw new InvalidOperationException("BaseLib ID prefix patch not found")).Patch();
         AccessTools.PropertySetter(AccessTools.TypeByName("BaseLib.Patches.PostModInitPatch"), "CanModifyGameplay").Invoke(null, [true]);
         AccessTools.Method(AccessTools.TypeByName("BaseLib.Abstracts.CardModifier"), "RegisterSave").Invoke(null, null);
     }

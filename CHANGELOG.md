@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.7-ts (talentshards branch)
+
+- Fixed the Shard Pouch being replaced by a deprecated relic in the simulator: it now applies BaseLib's mod ID prefix (e.g. RELIC.TALENTSHARDS-SHARD_POUCH).
+
 ## 0.17.6-ts (talentshards branch)
 
 - Fixed the simulator misreading Talent Shards runs: with a gameplay mod, BaseLib adds extended save data to every card, relic and player. The simulator now applies the same BaseLib save patches.
