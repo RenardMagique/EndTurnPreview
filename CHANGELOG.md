@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.9-ts (talentshards branch)
+
+- A player choice at the start of the next turn (e.g. an optional exhaust) no longer blocks the forecast: it stops at that choice.
+
 ## 0.17.8-ts (talentshards branch)
 
 - Fixed "Combat state mismatch" against The Insatiable: Sandpit animation fields are no longer compared.
