@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.3
+
+- Fixed forecasts staying "pending": on game v0.111.1 each simulated combat waited 10 s for the previous one's turn loop. The simulator no longer waits.
+
 ## 0.17.2
 
 - Fixed the preview worker crashing at startup when another mod (e.g. Talent Shards) prints through Godot in its initializer: the worker now ignores Godot print calls.
