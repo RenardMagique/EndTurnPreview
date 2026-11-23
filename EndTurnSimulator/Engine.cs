@@ -311,6 +311,14 @@ internal static class Engine
 
     internal static async Task<SimulationResult> Simulate(string json, string data)
     {
+        // Kept before simulating, so a request that kills the worker can still be replayed offline.
+        try
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "EndTurnDamagePreview");
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "last-request.json"), json);
+        }
+        catch { }
         var request = JsonSerializer.Deserialize<SimulationRequest>(json) ?? throw new InvalidDataException();
         Initialize(data, request.BaseLib, request.Mods);
         if (typeof(CombatState).Module.ModuleVersionId.ToString() != request.GameModule)
