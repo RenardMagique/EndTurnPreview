@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.4-ts (talentshards branch)
+
+- The mod sends the live saved-property ID table to the simulator, which uses it instead of its own. With Talent Shards the two tables differed, so the Shard Pouch failed to load in the simulator.
+
 ## 0.17.3-ts (talentshards branch)
 
 - Fixed forecasts staying "pending": on game v0.111.1 each simulated combat waited 10 s for the previous one's turn loop. The simulator no longer waits.

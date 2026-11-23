@@ -197,6 +197,18 @@ internal static class Engine
     private static bool ReturnFalse(ref bool __result) { __result = false; return false; }
     private static bool ReturnTrue(ref bool __result) { __result = true; return false; }
     private static bool Skip() => false;
+
+    private static void UseLivePropertyIds(string[] names)
+    {
+        var toName = AccessTools.StaticFieldRefAccess<List<string>>(typeof(ModelIdSerializationCache), "_netIdToPropertyNameMap");
+        if (toName.SequenceEqual(names)) return;
+        var toId = AccessTools.StaticFieldRefAccess<Dictionary<string, int>>(typeof(ModelIdSerializationCache), "_propertyNameToNetIdMap");
+        toName.Clear();
+        toId.Clear();
+        foreach (string name in names) { toId[name] = toName.Count; toName.Add(name); }
+        AccessTools.PropertySetter(typeof(ModelIdSerializationCache), nameof(ModelIdSerializationCache.PropertyIdBitSize))
+            .Invoke(null, [(int)Math.Ceiling(Math.Log2(toName.Count))]);
+    }
     private static bool NoTurnLoopWait(ref Task __result) { __result = Task.CompletedTask; return false; }
 
     private static bool NoCommandLineValue(ref string? __1, ref bool __result)
@@ -302,6 +314,7 @@ internal static class Engine
         // Gameplay mods (e.g. Talent Shards) make the live model hash depend on when BaseLib registers their
         // saved properties, so it can differ from the worker's although the same assemblies are loaded (their
         // module identities are checked when they are registered). The replayed state stamp still guards the forecast.
+        if (request.PropertyNames is { Length: > 0 } names) UseLivePropertyIds(names);
         bool gameplayMods = request.Mods.Any(mod => mod.AffectsGameplay && mod.Id is not ("BaseLib" or "EndTurnDamagePreview"));
         if (!gameplayMods && ModelIdSerializationCache.Hash != request.ModelHash)
             return Unknown($"Engine version mismatch (model hash {ModelIdSerializationCache.Hash} vs {request.ModelHash})");

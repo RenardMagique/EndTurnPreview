@@ -14,7 +14,10 @@ public sealed record SimulationMod(string Id, string Version, bool AffectsGamepl
 // EventEncounter is set when the combat was started from an event option: Replay then starts
 // at that moment (the game's own replay starts at the event, whose option choices are not recorded).
 public sealed record SimulationRequest(string Replay, string Baseline, uint ModelHash, string GameModule, bool BaseLib, SimulationMod[] Mods,
-    string? EventEncounter = null);
+    string? EventEncounter = null,
+    // The live saved-property net-ID table. BaseLib and gameplay mods (e.g. Talent Shards) can make it differ from
+    // the worker's, which would load saved properties into the wrong fields.
+    string[]? PropertyNames = null);
 public sealed record SimulatedPetState(
     int Index, string ModelId, int Hp, int Block, bool Alive,
     int MinHp, int MaxHp, int MinBlock, int MaxBlock);
