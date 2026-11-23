@@ -239,7 +239,30 @@ internal static class Engine
     private static string? FirstLine(string? text) => text?.Split('\n', 2)[0].Trim();
     private static string ErrorSuffix() => string.IsNullOrEmpty(engineErrorText) ? "" : ": " + engineErrorText;
     private static bool EmptyText(ref string __result) { __result = ""; return false; }
-    private static void ObserveChoice() { if (forecasting) { futureChoice = true; throw new InvalidOperationException("Future player choice required"); } }
+    private static void ObserveChoice()
+    {
+        if (!forecasting) return;
+        // Once the enemy turn is over, a choice at the start of the next player turn (e.g. an optional
+        // exhaust) belongs to the player: the forecast stops there with the state reached so far.
+        if (enemyTurnDone && choiceSnapshot == null && CombatManager.Instance.DebugOnlyGetState()?.CurrentSide == CombatSide.Player)
+            choiceSnapshot = Snapshot();
+        else futureChoice = true;
+        throw new InvalidOperationException("Future player choice required");
+    }
+    private static bool enemyTurnDone;
+    private static SimulationResult? choiceSnapshot;
+    private static IReadOnlyList<MegaCrit.Sts2.Core.Entities.Creatures.Creature> forecastPets = [];
+    private static RunState? forecastState;
+    private static SimulationResult Snapshot()
+    {
+        var manager = CombatManager.Instance;
+        var player = forecastState!.Players[0].Creature;
+        var pets = forecastPets.Select((pet, index) => new SimulatedPetState(index,
+            pet.Monster?.Id.ToString() ?? "", pet.CurrentHp, pet.Block, pet.IsAlive,
+            pet.CurrentHp, pet.CurrentHp, pet.Block, pet.Block)).ToArray();
+        return new(true, player.CurrentHp, player.Block, pets, manager.IsInProgress ? "NEXT TURN" : "COMBAT ENDS",
+            false, player.CurrentHp, player.CurrentHp, player.Block, player.Block, [], 1);
+    }
 
     private static IEnumerable<CodeInstruction> RemoveShuffleFrameTiming(IEnumerable<CodeInstruction> instructions)
     {
@@ -471,10 +494,13 @@ internal static class Engine
     private static async Task<SimulationResult> Predict(RunState state)
     {
         forecasting = true;
+        enemyTurnDone = false;
+        choiceSnapshot = null;
+        forecastState = state;
         try
         {
             var manager = CombatManager.Instance;
-            var petReferences = state.Players[0].PlayerCombatState?.Pets.ToArray() ?? [];
+            forecastPets = state.Players[0].PlayerCombatState?.Pets.ToArray() ?? [];
             // Same sequence the turn loop runs once every player is ready: end the player turn, play the
             // enemy turn, then start the next player turn. Driven directly so the live turn loop stays parked.
             object? turnState = turnStateField.GetValue(manager);
@@ -483,19 +509,17 @@ internal static class Engine
             if (manager.IsInProgress) await TurnStep("EndPlayerTurnPhaseTwoInternal", turnState);
             if (manager.IsInProgress) await TurnStep("SwitchFromPlayerToEnemySide", turnState);
             bool enemySide = manager.DebugOnlyGetState()?.CurrentSide == CombatSide.Enemy;
+            enemyTurnDone = !enemySide;
             if (manager.IsInProgress) await TurnStep("StartTurn", turnState);
+            enemyTurnDone = true;
             if (enemySide && manager.IsInProgress && manager.DebugOnlyGetState()?.CurrentSide == CombatSide.Player)
                 await TurnStep("StartTurn", turnState);
             await RunManager.Instance.ActionExecutor.FinishedExecutingActions();
-            var player = state.Players[0].Creature;
-            var pets = petReferences.Select((pet, index) => new SimulatedPetState(index,
-                pet.Monster?.Id.ToString() ?? "", pet.CurrentHp, pet.Block, pet.IsAlive,
-                pet.CurrentHp, pet.CurrentHp, pet.Block, pet.Block)).ToArray();
-            return futureChoice ? Unknown("Player choice required") : engineError ? Unknown("Simulation error" + ErrorSuffix())
-                : new(true, player.CurrentHp, player.Block, pets, manager.IsInProgress ? "NEXT TURN" : "COMBAT ENDS",
-                    false, player.CurrentHp, player.CurrentHp, player.Block, player.Block, [], 1);
+            return futureChoice ? Unknown("Player choice required") : engineError && choiceSnapshot == null ? Unknown("Simulation error" + ErrorSuffix())
+                : choiceSnapshot ?? Snapshot();
         }
         catch (Exception) when (futureChoice) { return Unknown("Player choice required"); }
+        catch (Exception) when (choiceSnapshot != null) { return choiceSnapshot; }
         finally { forecasting = false; }
     }
 
@@ -654,8 +678,9 @@ internal static class Engine
             var outcome = await Predict(state);
             if (scenario == "choice")
             {
-                if (outcome.Verified || !futureChoice) throw new InvalidOperationException("Future choice was not rejected");
-                Console.WriteLine("PASS choice: no unverified number");
+                // The choice comes after the enemy turn: the forecast stops there instead of failing.
+                if (!outcome.Verified || futureChoice || choiceSnapshot == null) throw new InvalidOperationException("Next-turn choice did not stop the forecast");
+                Console.WriteLine($"PASS choice: stopped at next-turn choice, {outcome.Hp} HP");
                 return;
             }
             if (!outcome.Verified || outcome.Hp != expectedHp || outcome.Block != expectedBlock)

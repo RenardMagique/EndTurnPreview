@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.5
+
+- A player choice at the start of the next turn (e.g. Tools of the Trade) no longer blocks the forecast: it stops at that choice.
+
 ## 0.17.4
 
 - Fixed "Combat state mismatch" against The Insatiable: Sandpit animation fields are no longer compared.
