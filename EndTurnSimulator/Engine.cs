@@ -198,16 +198,20 @@ internal static class Engine
     private static bool ReturnTrue(ref bool __result) { __result = true; return false; }
     private static bool Skip() => false;
 
-    private static void UseLivePropertyIds(string[] names)
+    private static void UseLiveIdTables(string[][] tables)
     {
-        var toName = AccessTools.StaticFieldRefAccess<List<string>>(typeof(ModelIdSerializationCache), "_netIdToPropertyNameMap");
-        if (toName.SequenceEqual(names)) return;
-        var toId = AccessTools.StaticFieldRefAccess<Dictionary<string, int>>(typeof(ModelIdSerializationCache), "_propertyNameToNetIdMap");
-        toName.Clear();
-        toId.Clear();
-        foreach (string name in names) { toId[name] = toName.Count; toName.Add(name); }
-        AccessTools.PropertySetter(typeof(ModelIdSerializationCache), nameof(ModelIdSerializationCache.PropertyIdBitSize))
-            .Invoke(null, [(int)Math.Ceiling(Math.Log2(toName.Count))]);
+        for (int i = 0; i < tables.Length; i++)
+        {
+            string name = SimulationProtocol.IdTableNames[i];
+            var toName = AccessTools.StaticFieldRefAccess<List<string>>(typeof(ModelIdSerializationCache), $"_netIdTo{name}NameMap");
+            if (tables[i].Length == 0 || toName.SequenceEqual(tables[i])) continue;
+            var toId = AccessTools.StaticFieldRefAccess<Dictionary<string, int>>(typeof(ModelIdSerializationCache), $"_{name.ToLowerInvariant()}NameToNetIdMap");
+            toName.Clear();
+            toId.Clear();
+            foreach (string entry in tables[i]) { toId[entry] = toName.Count; toName.Add(entry); }
+            AccessTools.PropertySetter(typeof(ModelIdSerializationCache), $"{name}IdBitSize")
+                .Invoke(null, [(int)Math.Ceiling(Math.Log2(toName.Count))]);
+        }
     }
     private static bool NoTurnLoopWait(ref Task __result) { __result = Task.CompletedTask; return false; }
 
@@ -314,7 +318,7 @@ internal static class Engine
         // Gameplay mods (e.g. Talent Shards) make the live model hash depend on when BaseLib registers their
         // saved properties, so it can differ from the worker's although the same assemblies are loaded (their
         // module identities are checked when they are registered). The replayed state stamp still guards the forecast.
-        if (request.PropertyNames is { Length: > 0 } names) UseLivePropertyIds(names);
+        if (request.IdTables is { Length: 4 } tables) UseLiveIdTables(tables);
         bool gameplayMods = request.Mods.Any(mod => mod.AffectsGameplay && mod.Id is not ("BaseLib" or "EndTurnDamagePreview"));
         if (!gameplayMods && ModelIdSerializationCache.Hash != request.ModelHash)
             return Unknown($"Engine version mismatch (model hash {ModelIdSerializationCache.Hash} vs {request.ModelHash})");

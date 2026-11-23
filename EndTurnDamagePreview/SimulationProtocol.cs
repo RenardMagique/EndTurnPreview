@@ -15,9 +15,9 @@ public sealed record SimulationMod(string Id, string Version, bool AffectsGamepl
 // at that moment (the game's own replay starts at the event, whose option choices are not recorded).
 public sealed record SimulationRequest(string Replay, string Baseline, uint ModelHash, string GameModule, bool BaseLib, SimulationMod[] Mods,
     string? EventEncounter = null,
-    // The live saved-property net-ID table. BaseLib and gameplay mods (e.g. Talent Shards) can make it differ from
-    // the worker's, which would load saved properties into the wrong fields.
-    string[]? PropertyNames = null);
+    // The live net-ID tables (categories, entries, epochs, saved properties). BaseLib and gameplay mods
+    // (e.g. Talent Shards) can make them differ from the worker's, which would misread the replay.
+    string[][]? IdTables = null);
 public sealed record SimulatedPetState(
     int Index, string ModelId, int Hp, int Block, bool Alive,
     int MinHp, int MaxHp, int MinBlock, int MaxBlock);
@@ -81,6 +81,8 @@ public static class SimulationProtocol
                 .Select(ModelScalars).ToArray()
         });
     }
+
+    public static readonly string[] IdTableNames = ["Category", "Entry", "Epoch", "Property"];
 
     public static string DescribeStampMismatch(string expected, string actual)
     {

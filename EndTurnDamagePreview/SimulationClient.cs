@@ -192,7 +192,8 @@ internal static class SimulationClient
         // Only immutable bytes cross the process boundary; the live combat is never mutated.
         var request = new SimulationRequest(SimulationProtocol.Pack(replay), stamp, ModelIdSerializationCache.Hash,
             typeof(CombatState).Module.ModuleVersionId.ToString(), loadedMods.Any(mod => mod.Id == "BaseLib"), loadedMods, encounter,
-            HarmonyLib.AccessTools.StaticFieldRefAccess<List<string>>(typeof(ModelIdSerializationCache), "_netIdToPropertyNameMap").ToArray());
+            SimulationProtocol.IdTableNames.Select(name =>
+                HarmonyLib.AccessTools.StaticFieldRefAccess<List<string>>(typeof(ModelIdSerializationCache), "_netIdTo" + name + "NameMap").ToArray()).ToArray());
         computation = session == null
             ? Task.FromResult(Unavailable("Simulator unavailable"))
             : session.Simulate(JsonSerializer.Serialize(request));

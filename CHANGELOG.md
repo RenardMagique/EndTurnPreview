@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.5-ts (talentshards branch)
+
+- The simulator now uses all of the live net-ID tables (categories, entries, epochs, saved properties): with Talent Shards the live game adds entries after startup.
+
 ## 0.17.4-ts (talentshards branch)
 
 - The mod sends the live saved-property ID table to the simulator, which uses it instead of its own. With Talent Shards the two tables differed, so the Shard Pouch failed to load in the simulator.
