@@ -201,6 +201,20 @@ internal static class Engine
     private static bool ReturnFalse(ref bool __result) { __result = false; return false; }
     private static bool ReturnTrue(ref bool __result) { __result = true; return false; }
     private static bool Skip() => false;
+
+    // RunState.CreateForTest gains parameters between game builds (stable vs public beta): call it with
+    // defaults for everything but players and seed, so one worker build runs on both.
+    private static RunState CreateTestRun(IReadOnlyList<MegaCrit.Sts2.Core.Entities.Players.Player>? players)
+    {
+        var method = typeof(RunState).GetMethods(BindingFlags.Public | BindingFlags.Static).Single(m => m.Name == nameof(RunState.CreateForTest));
+        var args = method.GetParameters().Select(p => p.Name switch
+        {
+            "players" => (object?)players,
+            "seed" => "SIMULATIONTEST",
+            _ => p.HasDefaultValue ? p.DefaultValue : p.ParameterType.IsValueType ? Activator.CreateInstance(p.ParameterType) : null
+        }).ToArray();
+        return (RunState)method.Invoke(null, args)!;
+    }
     private static bool ReturnNullObject(ref object? __result) { __result = null; return false; }
 
     // With a gameplay mod that depends on BaseLib, the live game prefixes mod model IDs and runs BaseLib's extended saves: every saved card,
@@ -671,7 +685,7 @@ internal static class Engine
             Console.WriteLine("PASS happy-flower-visual: animation flag ignored, turn counter retained");
             return;
         }
-        var state = RunState.CreateForTest(seed: "SIMULATIONTEST");
+        var state = CreateTestRun(null);
         LocalContext.NetId = 1;
         RunManager.Instance.SetUpTest(state, new NetSingleplayerGameService());
         RunManager.Instance.GenerateRooms();
@@ -777,7 +791,7 @@ internal static class Engine
         try
         {
             var player = MegaCrit.Sts2.Core.Entities.Players.Player.CreateForNewRun<MegaCrit.Sts2.Core.Models.Characters.Ironclad>(MegaCrit.Sts2.Core.Unlocks.UnlockState.all, 1);
-            var state = RunState.CreateForTest(players: [player], seed: "SIMULATIONTEST");
+            var state = CreateTestRun([player]);
             run.SetUpTest(state, new NetSingleplayerGameService());
             run.Launch();
             run.GenerateRooms();

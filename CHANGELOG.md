@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.1-ts (talentshards branch)
+
+- Fixed the simulator failing to start on the stable game after a public-beta build: one build now runs on both.
+
 ## 0.18.0-ts (talentshards branch)
 
 - Coop support: every player's health bar shows its forecast; the turn is simulated as if all players ended it now.
