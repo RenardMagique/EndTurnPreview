@@ -170,6 +170,9 @@ internal static class SimulationClient
         diagnosticContext = Describe(combat);
         if (run.ActionExecutor.IsRunning || CombatManager.Instance.IsStarting)
             return Forecast.Pending("Waiting for action…");
+        // A turn still starting replays to its play phase in the worker: wait until it gets there.
+        if (combat.Players.Any(p => p.PlayerCombatState?.Phase == MegaCrit.Sts2.Core.Combat.PlayerTurnPhase.Start))
+            return Forecast.Pending("Waiting for action…");
 
         string stamp = SimulationProtocol.Stamp(combat.RunState, combat);
         dirty = false;

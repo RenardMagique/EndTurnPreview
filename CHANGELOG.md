@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.2-ts (talentshards branch)
+
+- Card choices during the forecast (e.g. the Knowledge Demon's curse) are simulated option by option and shown as a range instead of blocking it.
+- Fixed a "Combat state mismatch" when the forecast was requested while a turn was still starting.
+
 ## 0.18.1-ts (talentshards branch)
 
 - Fixed the simulator failing to start on the stable game after a public-beta build: one build now runs on both.

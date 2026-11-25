@@ -28,7 +28,34 @@ namespace EndTurnSimulator;
 internal static class Engine
 {
     private sealed record ForecastAttempt(
-        SimulationResult Result, RunRngType[] UsedRngs, bool HasStampede, ulong RunSeed);
+        SimulationResult Result, RunRngType[] UsedRngs, bool HasStampede, ulong RunSeed, int[]? ChoiceCounts = null);
+
+    // Card choices made during the forecast (e.g. the Knowledge Demon's curse): each option is simulated
+    // in turn and the forecast shows the range. choicePlan picks the option of the n-th choice (0 by default).
+    private static int[] choicePlan = [];
+    private static readonly List<int> choiceCounts = [];
+    private sealed class ForecastSelector : MegaCrit.Sts2.Core.TestSupport.ICardSelector
+    {
+        public Task<IEnumerable<CardModel>> GetSelectedCards(IEnumerable<CardModel> options, int minSelect, int maxSelect)
+        {
+            var cards = options.ToList();
+            // After the enemy turn the choice belongs to the next player turn: stop the forecast there.
+            if (enemyTurnDone && CombatManager.Instance.DebugOnlyGetState()?.CurrentSide == CombatSide.Player) ObserveChoice();
+            if (minSelect > 1 || cards.Count == 0) return Task.FromResult<IEnumerable<CardModel>>(cards.Take(minSelect).ToList());
+            int alternatives = cards.Count + (minSelect == 0 ? 1 : 0);
+            int index = choiceCounts.Count;
+            choiceCounts.Add(alternatives);
+            int pick = index < choicePlan.Length ? Math.Min(choicePlan[index], alternatives - 1) : 0;
+            return Task.FromResult<IEnumerable<CardModel>>(pick < cards.Count ? [cards[pick]] : []);
+        }
+        public MegaCrit.Sts2.Core.TestSupport.CardRewardSelection GetSelectedCardReward(
+            IReadOnlyList<MegaCrit.Sts2.Core.Entities.Cards.CardCreationResult> options,
+            IReadOnlyList<MegaCrit.Sts2.Core.Entities.CardRewardAlternatives.CardRewardAlternative> alternatives)
+        {
+            futureChoice = true;
+            throw new InvalidOperationException("Future player choice required");
+        }
+    }
 
     private static bool initialized;
     private static bool loadedBaseLib;
@@ -409,6 +436,31 @@ internal static class Engine
         else if (exact.Result.Status.StartsWith("Combat state mismatch", StringComparison.Ordinal)) DumpFailure(json, exact.Result.Status);
         if (!exact.Result.Verified) return exact.Result;
 
+        if (exact.ChoiceCounts is { Length: > 0 } counts)
+        {
+            // Every combination of options, as long as it stays small.
+            const int maxChoiceBranches = 12;
+            long combinations = counts.Aggregate(1L, (total, count) => total * count);
+            if (combinations > maxChoiceBranches) return Unknown("Player choice required");
+            var choiceOutcomes = new List<SimulationResult> { exact.Result };
+            for (int combination = 1; combination < combinations; combination++)
+            {
+                int rest = combination;
+                choicePlan = counts.Select(count => { int pick = rest % count; rest /= count; return pick; }).ToArray();
+                try
+                {
+                    var alternate = await RunForecastAttempt(request, replay, null);
+                    if (!alternate.Result.Verified) return alternate.Result;
+                    choiceOutcomes.Add(alternate.Result);
+                }
+                finally { choicePlan = []; }
+            }
+            var combined = CombineRandomOutcomes(choiceOutcomes, []);
+            return combined.Randomized
+                ? combined with { Status = exact.Result.Status + " (DEPENDS ON CHOICE)", RandomSources = ["PlayerChoice"] }
+                : combined;
+        }
+
         // MonsterAi rolls select a later visible intent after the current enemy turn,
         // so they cannot change damage in the interval being previewed. Shuffle is
         // relevant here only when Stampede performs its hidden random card choice.
@@ -444,6 +496,7 @@ internal static class Engine
         engineErrorFull = null;
         futureChoice = false;
         forecasting = false;
+        choiceCounts.Clear();
         try
         {
             var state = RunState.FromSerializable(replay.serializableRun);
@@ -512,7 +565,7 @@ internal static class Engine
             var used = before.Keys.Concat(after.Keys).Distinct()
                 .Where(type => before.GetValueOrDefault(type) != after.GetValueOrDefault(type))
                 .ToArray();
-            return new(result, used, hasStampede, state.Rng.Seed);
+            return new(result, used, hasStampede, state.Rng.Seed, choiceCounts.ToArray());
         }
         finally
         {
@@ -575,6 +628,7 @@ internal static class Engine
     private static async Task<SimulationResult> Predict(RunState state)
     {
         forecasting = true;
+        using var selector = CardSelectCmd.PushSelector(new ForecastSelector());
         enemyTurnDone = false;
         choiceSnapshot = null;
         forecastState = state;
