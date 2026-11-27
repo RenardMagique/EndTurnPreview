@@ -28,7 +28,34 @@ namespace EndTurnSimulator;
 internal static class Engine
 {
     private sealed record ForecastAttempt(
-        SimulationResult Result, RunRngType[] UsedRngs, bool HasStampede, ulong RunSeed);
+        SimulationResult Result, RunRngType[] UsedRngs, bool HasStampede, ulong RunSeed, int[]? ChoiceCounts = null);
+
+    // Card choices made during the forecast (e.g. the Knowledge Demon's curse): each option is simulated
+    // in turn and the forecast shows the range. choicePlan picks the option of the n-th choice (0 by default).
+    private static int[] choicePlan = [];
+    private static readonly List<int> choiceCounts = [];
+    private sealed class ForecastSelector : MegaCrit.Sts2.Core.TestSupport.ICardSelector
+    {
+        public Task<IEnumerable<CardModel>> GetSelectedCards(IEnumerable<CardModel> options, int minSelect, int maxSelect)
+        {
+            var cards = options.ToList();
+            // After the enemy turn the choice belongs to the next player turn: stop the forecast there.
+            if (enemyTurnDone && CombatManager.Instance.DebugOnlyGetState()?.CurrentSide == CombatSide.Player) ObserveChoice();
+            if (minSelect > 1 || cards.Count == 0) return Task.FromResult<IEnumerable<CardModel>>(cards.Take(minSelect).ToList());
+            int alternatives = cards.Count + (minSelect == 0 ? 1 : 0);
+            int index = choiceCounts.Count;
+            choiceCounts.Add(alternatives);
+            int pick = index < choicePlan.Length ? Math.Min(choicePlan[index], alternatives - 1) : 0;
+            return Task.FromResult<IEnumerable<CardModel>>(pick < cards.Count ? [cards[pick]] : []);
+        }
+        public MegaCrit.Sts2.Core.TestSupport.CardRewardSelection GetSelectedCardReward(
+            IReadOnlyList<MegaCrit.Sts2.Core.Entities.Cards.CardCreationResult> options,
+            IReadOnlyList<MegaCrit.Sts2.Core.Entities.CardRewardAlternatives.CardRewardAlternative> alternatives)
+        {
+            futureChoice = true;
+            throw new InvalidOperationException("Future player choice required");
+        }
+    }
 
     private static bool initialized;
     private static bool loadedBaseLib;
@@ -106,6 +133,12 @@ internal static class Engine
         // Each replay starts a fresh combat. v0.111 waits up to 10s for the previous combat's turn loop, which in
         // the worker stays suspended forever after teardown; that wait made every forecast miss its deadline.
         Patch("MegaCrit.Sts2.Core.Combat.CombatManager:WaitForPreviousTurnLoopToFinish", nameof(NoTurnLoopWait));
+        // Crusher and Rocket (Kaiser Crab boss) look up their background in the bestiary screen, a Godot node.
+        patches.Patch(AccessTools.PropertyGetter(typeof(MegaCrit.Sts2.Core.Nodes.Screens.Bestiary.NBestiary), "Instance"),
+            prefix: new HarmonyMethod(typeof(Engine), nameof(ReturnNullObject)));
+        // Public beta: temporary sound effects go through a Godot node whose static setup needs native Godot.
+        if (AccessTools.TypeByName("MegaCrit.Sts2.Core.Audio.Debug.NDebugAudioManager") is { } debugAudio)
+            patches.Patch(AccessTools.PropertyGetter(debugAudio, "Instance"), prefix: new HarmonyMethod(typeof(Engine), nameof(ReturnNullObject)));
         var registeredMods = (List<Mod>)AccessTools.Field(typeof(ModManager), "_mods").GetValue(null)!;
         // Mods may ship companion assemblies next to them (BaseLib 3.4+ needs BaseLibCompatibilityHelper).
         AssemblyLoadContext.Default.Resolving += (context, name) =>
@@ -197,6 +230,21 @@ internal static class Engine
     private static bool ReturnFalse(ref bool __result) { __result = false; return false; }
     private static bool ReturnTrue(ref bool __result) { __result = true; return false; }
     private static bool Skip() => false;
+
+    // RunState.CreateForTest gains parameters between game builds (stable vs public beta): call it with
+    // defaults for everything but players and seed, so one worker build runs on both.
+    private static RunState CreateTestRun(IReadOnlyList<MegaCrit.Sts2.Core.Entities.Players.Player>? players)
+    {
+        var method = typeof(RunState).GetMethods(BindingFlags.Public | BindingFlags.Static).Single(m => m.Name == nameof(RunState.CreateForTest));
+        var args = method.GetParameters().Select(p => p.Name switch
+        {
+            "players" => (object?)players,
+            "seed" => "SIMULATIONTEST",
+            _ => p.HasDefaultValue ? p.DefaultValue : p.ParameterType.IsValueType ? Activator.CreateInstance(p.ParameterType) : null
+        }).ToArray();
+        return (RunState)method.Invoke(null, args)!;
+    }
+    private static bool ReturnNullObject(ref object? __result) { __result = null; return false; }
     private static bool NoTurnLoopWait(ref Task __result) { __result = Task.CompletedTask; return false; }
 
     private static bool NoCommandLineValue(ref string? __1, ref bool __result)
@@ -251,17 +299,22 @@ internal static class Engine
     }
     private static bool enemyTurnDone;
     private static SimulationResult? choiceSnapshot;
-    private static IReadOnlyList<MegaCrit.Sts2.Core.Entities.Creatures.Creature> forecastPets = [];
+    private static Dictionary<ulong, MegaCrit.Sts2.Core.Entities.Creatures.Creature[]> forecastPets = [];
     private static RunState? forecastState;
+    private static ulong forecastLocalId;
     private static SimulationResult Snapshot()
     {
         var manager = CombatManager.Instance;
-        var player = forecastState!.Players[0].Creature;
-        var pets = forecastPets.Select((pet, index) => new SimulatedPetState(index,
-            pet.Monster?.Id.ToString() ?? "", pet.CurrentHp, pet.Block, pet.IsAlive,
-            pet.CurrentHp, pet.CurrentHp, pet.Block, pet.Block)).ToArray();
-        return new(true, player.CurrentHp, player.Block, pets, manager.IsInProgress ? "NEXT TURN" : "COMBAT ENDS",
-            false, player.CurrentHp, player.CurrentHp, player.Block, player.Block, [], 1);
+        var players = forecastState!.Players.Select(p =>
+        {
+            var pets = forecastPets.GetValueOrDefault(p.NetId, []).Select((pet, index) => new SimulatedPetState(index,
+                pet.Monster?.Id.ToString() ?? "", pet.CurrentHp, pet.Block, pet.IsAlive,
+                pet.CurrentHp, pet.CurrentHp, pet.Block, pet.Block)).ToArray();
+            return new SimulatedPlayerState(p.NetId, p.Creature.CurrentHp, p.Creature.CurrentHp, p.Creature.Block, p.Creature.Block, pets);
+        }).ToArray();
+        var local = players.FirstOrDefault(p => p.NetId == forecastLocalId) ?? players[0];
+        return new(true, local.MinHp, local.MinBlock, local.Pets, manager.IsInProgress ? "NEXT TURN" : "COMBAT ENDS",
+            false, local.MinHp, local.MaxHp, local.MinBlock, local.MaxBlock, [], 1, players);
     }
 
     private static IEnumerable<CodeInstruction> RemoveShuffleFrameTiming(IEnumerable<CodeInstruction> instructions)
@@ -325,7 +378,6 @@ internal static class Engine
         var reader = new PacketReader();
         reader.Reset(Convert.FromBase64String(request.Replay));
         var replay = reader.Read<CombatReplay>();
-        if (replay.serializableRun.Players.Count != 1) return Unknown("Multiplayer not supported");
 
         ForecastAttempt exact;
         try { exact = await RunForecastAttempt(request, replay, null); }
@@ -333,6 +385,31 @@ internal static class Engine
         if (engineErrorFull != null) DumpFailure(json, engineErrorFull);
         else if (exact.Result.Status.StartsWith("Combat state mismatch", StringComparison.Ordinal)) DumpFailure(json, exact.Result.Status);
         if (!exact.Result.Verified) return exact.Result;
+
+        if (exact.ChoiceCounts is { Length: > 0 } counts)
+        {
+            // Every combination of options, as long as it stays small.
+            const int maxChoiceBranches = 12;
+            long combinations = counts.Aggregate(1L, (total, count) => total * count);
+            if (combinations > maxChoiceBranches) return Unknown("Player choice required");
+            var choiceOutcomes = new List<SimulationResult> { exact.Result };
+            for (int combination = 1; combination < combinations; combination++)
+            {
+                int rest = combination;
+                choicePlan = counts.Select(count => { int pick = rest % count; rest /= count; return pick; }).ToArray();
+                try
+                {
+                    var alternate = await RunForecastAttempt(request, replay, null);
+                    if (!alternate.Result.Verified) return alternate.Result;
+                    choiceOutcomes.Add(alternate.Result);
+                }
+                finally { choicePlan = []; }
+            }
+            var combined = CombineRandomOutcomes(choiceOutcomes, []);
+            return combined.Randomized
+                ? combined with { Status = exact.Result.Status + " (DEPENDS ON CHOICE)", RandomSources = ["PlayerChoice"] }
+                : combined;
+        }
 
         // MonsterAi rolls select a later visible intent after the current enemy turn,
         // so they cannot change damage in the interval being previewed. Shuffle is
@@ -369,11 +446,13 @@ internal static class Engine
         engineErrorFull = null;
         futureChoice = false;
         forecasting = false;
+        choiceCounts.Clear();
         try
         {
             var state = RunState.FromSerializable(replay.serializableRun);
             var run = RunManager.Instance;
-            run.SetUpReplay(state, replay, state.Players[0].NetId);
+            forecastLocalId = request.LocalNetId is { } localId && state.Players.Any(p => p.NetId == localId) ? localId : state.Players[0].NetId;
+            run.SetUpReplay(state, replay, forecastLocalId);
             AccessTools.PropertySetter(typeof(RunManager), nameof(RunManager.ShouldSave)).Invoke(run, [false]);
             run.CombatStateSynchronizer.IsDisabled = true;
             run.Launch();
@@ -436,7 +515,7 @@ internal static class Engine
             var used = before.Keys.Concat(after.Keys).Distinct()
                 .Where(type => before.GetValueOrDefault(type) != after.GetValueOrDefault(type))
                 .ToArray();
-            return new(result, used, hasStampede, state.Rng.Seed);
+            return new(result, used, hasStampede, state.Rng.Seed, choiceCounts.ToArray());
         }
         finally
         {
@@ -466,41 +545,47 @@ internal static class Engine
         IReadOnlyList<SimulationResult> outcomes,
         RunRngType[] sources)
     {
-        int minHp = outcomes.Min(result => result.Hp);
-        int maxHp = outcomes.Max(result => result.Hp);
-        int minBlock = outcomes.Min(result => result.Block);
-        int maxBlock = outcomes.Max(result => result.Block);
         var first = outcomes[0];
-        var pets = first.Pets.Select(pet =>
+        // Each outcome lists every player; older/test outcomes only carry the top-level player.
+        static SimulatedPlayerState[] PlayersOf(SimulationResult r) => r.Players
+            ?? [new SimulatedPlayerState(0, r.Hp, r.Hp, r.Block, r.Block, r.Pets)];
+        var players = PlayersOf(first).Select(player =>
         {
-            var variants = outcomes.SelectMany(result => result.Pets)
-                .Where(candidate => candidate.Index == pet.Index && candidate.ModelId == pet.ModelId)
-                .ToArray();
-            int petMinHp = variants.Min(candidate => candidate.Hp);
-            int petMaxHp = variants.Max(candidate => candidate.Hp);
-            int petMinBlock = variants.Min(candidate => candidate.Block);
-            int petMaxBlock = variants.Max(candidate => candidate.Block);
-            return new SimulatedPetState(pet.Index, pet.ModelId, petMinHp, petMinBlock,
-                variants.All(candidate => candidate.Alive), petMinHp, petMaxHp, petMinBlock, petMaxBlock);
+            var variants = outcomes.Select(r => PlayersOf(r).FirstOrDefault(c => c.NetId == player.NetId)).OfType<SimulatedPlayerState>().ToArray();
+            var pets = player.Pets.Select(pet =>
+            {
+                var petVariants = variants.SelectMany(v => v.Pets)
+                    .Where(candidate => candidate.Index == pet.Index && candidate.ModelId == pet.ModelId).ToArray();
+                int petMinHp = petVariants.Min(c => c.MinHp), petMaxHp = petVariants.Max(c => c.MaxHp);
+                int petMinBlock = petVariants.Min(c => c.MinBlock), petMaxBlock = petVariants.Max(c => c.MaxBlock);
+                return new SimulatedPetState(pet.Index, pet.ModelId, petMinHp, petMinBlock,
+                    petVariants.All(c => c.Alive), petMinHp, petMaxHp, petMinBlock, petMaxBlock);
+            }).ToArray();
+            return new SimulatedPlayerState(player.NetId, variants.Min(v => v.MinHp), variants.Max(v => v.MaxHp),
+                variants.Min(v => v.MinBlock), variants.Max(v => v.MaxBlock), pets);
         }).ToArray();
-        bool randomized = minHp != maxHp || minBlock != maxBlock || pets.Any(pet =>
-            pet.MinHp != pet.MaxHp || pet.MinBlock != pet.MaxBlock);
+        int localIndex = Math.Max(0, Array.FindIndex(players, p => p.NetId == forecastLocalId));
+        var local = players[localIndex];
+        bool randomized = players.Any(p => p.MinHp != p.MaxHp || p.MinBlock != p.MaxBlock
+            || p.Pets.Any(pet => pet.MinHp != pet.MaxHp || pet.MinBlock != pet.MaxBlock));
         string[] randomSources = randomized ? sources.Select(source => source.ToString()).ToArray() : [];
-        return new(true, minHp, minBlock, pets,
+        return new(true, local.MinHp, local.MinBlock, local.Pets,
             randomized ? first.Status + " (HIDDEN RANDOMNESS)" : first.Status,
-            randomized, minHp, maxHp, minBlock, maxBlock, randomSources, outcomes.Count);
+            randomized, local.MinHp, local.MaxHp, local.MinBlock, local.MaxBlock, randomSources, outcomes.Count,
+            first.Players == null ? null : players);
     }
 
     private static async Task<SimulationResult> Predict(RunState state)
     {
         forecasting = true;
+        using var selector = CardSelectCmd.PushSelector(new ForecastSelector());
         enemyTurnDone = false;
         choiceSnapshot = null;
         forecastState = state;
         try
         {
             var manager = CombatManager.Instance;
-            forecastPets = state.Players[0].PlayerCombatState?.Pets.ToArray() ?? [];
+            forecastPets = state.Players.ToDictionary(p => p.NetId, p => p.PlayerCombatState?.Pets.ToArray() ?? []);
             // Same sequence the turn loop runs once every player is ready: end the player turn, play the
             // enemy turn, then start the next player turn. Driven directly so the live turn loop stays parked.
             object? turnState = turnStateField.GetValue(manager);
@@ -604,7 +689,7 @@ internal static class Engine
             Console.WriteLine("PASS happy-flower-visual: animation flag ignored, turn counter retained");
             return;
         }
-        var state = RunState.CreateForTest(seed: "SIMULATIONTEST");
+        var state = CreateTestRun(null);
         LocalContext.NetId = 1;
         RunManager.Instance.SetUpTest(state, new NetSingleplayerGameService());
         RunManager.Instance.GenerateRooms();
@@ -710,7 +795,7 @@ internal static class Engine
         try
         {
             var player = MegaCrit.Sts2.Core.Entities.Players.Player.CreateForNewRun<MegaCrit.Sts2.Core.Models.Characters.Ironclad>(MegaCrit.Sts2.Core.Unlocks.UnlockState.all, 1);
-            var state = RunState.CreateForTest(players: [player], seed: "SIMULATIONTEST");
+            var state = CreateTestRun([player]);
             run.SetUpTest(state, new NetSingleplayerGameService());
             run.Launch();
             run.GenerateRooms();

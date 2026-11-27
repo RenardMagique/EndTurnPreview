@@ -14,14 +14,19 @@ public sealed record SimulationMod(string Id, string Version, bool AffectsGamepl
 // EventEncounter is set when the combat was started from an event option: Replay then starts
 // at that moment (the game's own replay starts at the event, whose option choices are not recorded).
 public sealed record SimulationRequest(string Replay, string Baseline, uint ModelHash, string GameModule, bool BaseLib, SimulationMod[] Mods,
-    string? EventEncounter = null);
+    string? EventEncounter = null,
+    // Coop: the local player's net ID. The top-level result fields describe this player.
+    ulong? LocalNetId = null);
 public sealed record SimulatedPetState(
     int Index, string ModelId, int Hp, int Block, bool Alive,
     int MinHp, int MaxHp, int MinBlock, int MaxBlock);
 public sealed record SimulationResult(
     bool Verified, int Hp, int Block, SimulatedPetState[] Pets, string Status,
     bool Randomized, int MinHp, int MaxHp, int MinBlock, int MaxBlock,
-    string[] RandomSources, int Branches);
+    string[] RandomSources, int Branches,
+    // Every player's forecast (coop). Null from older workers: only the top-level player is known.
+    SimulatedPlayerState[]? Players = null);
+public sealed record SimulatedPlayerState(ulong NetId, int MinHp, int MaxHp, int MinBlock, int MaxBlock, SimulatedPetState[] Pets);
 public sealed record SimulationServerResponse(SimulationResult Result, long ElapsedMs);
 
 public static class SimulationProtocol
@@ -182,9 +187,8 @@ public static class SimulationProtocol
 
     private static bool IsPresentationOnlyScalar(AbstractModel model, FieldInfo field)
     {
-        // Happy Flower keeps this true for one second solely to animate its counter.
-        // Replay speed changes that timing, but TurnsSeen remains the gameplay state.
-        return (model is MegaCrit.Sts2.Core.Models.Relics.HappyFlower && field.Name == "_isActivating")
+        // Relics (Happy Flower, Tuning Fork...) keep _isActivating true for a moment solely to animate their counter.
+        return (model is RelicModel && field.Name == "_isActivating")
             // Sandpit only stores these for its sliding animation, skipped in TestMode.
             || (model is MegaCrit.Sts2.Core.Models.Powers.SandpitPower && field.Name is "_initialAmount" or "_initialTargetPosition");
     }

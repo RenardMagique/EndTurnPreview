@@ -168,12 +168,10 @@ internal static class SimulationClient
     {
         var run = RunManager.Instance;
         diagnosticContext = Describe(combat);
-        if (combat.Players.Count != 1)
-        {
-            dirty = false;
-            return DiagnosticPending("Multiplayer not supported");
-        }
         if (run.ActionExecutor.IsRunning || CombatManager.Instance.IsStarting)
+            return Forecast.Pending("Waiting for action…");
+        // A turn still starting replays to its play phase in the worker: wait until it gets there.
+        if (combat.Players.Any(p => p.PlayerCombatState?.Phase == MegaCrit.Sts2.Core.Combat.PlayerTurnPhase.Start))
             return Forecast.Pending("Waiting for action…");
 
         string stamp = SimulationProtocol.Stamp(combat.RunState, combat);
@@ -191,7 +189,8 @@ internal static class SimulationClient
 
         // Only immutable bytes cross the process boundary; the live combat is never mutated.
         var request = new SimulationRequest(SimulationProtocol.Pack(replay), stamp, ModelIdSerializationCache.Hash,
-            typeof(CombatState).Module.ModuleVersionId.ToString(), loadedMods.Any(mod => mod.Id == "BaseLib"), loadedMods, encounter);
+            typeof(CombatState).Module.ModuleVersionId.ToString(), loadedMods.Any(mod => mod.Id == "BaseLib"), loadedMods, encounter,
+            LocalNetId: MegaCrit.Sts2.Core.Context.LocalContext.NetId);
         computation = session == null
             ? Task.FromResult(Unavailable("Simulator unavailable"))
             : session.Simulate(JsonSerializer.Serialize(request));

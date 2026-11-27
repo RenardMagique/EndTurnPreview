@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.18.0
+
+- Coop support: every player's health bar shows its forecast, assuming all players end their turn now.
+- Card choices during the forecast (e.g. the Knowledge Demon's curse) are simulated option by option and shown as a range.
+- Fixed the simulator crashing against the Kaiser Crab boss and on the public beta (debug sound effects); one build runs on stable and beta.
+- Fixed "Combat state mismatch" with Tuning Fork and when a turn was still starting.
+
 ## 0.17.5
 
 - A player choice at the start of the next turn (e.g. Tools of the Trade) no longer blocks the forecast: it stops at that choice.
