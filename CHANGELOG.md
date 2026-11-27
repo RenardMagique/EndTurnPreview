@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.3-ts (talentshards branch)
+
+- Fixed the simulator crashing against the Kaiser Crab boss (Crusher/Rocket).
+- Fixed a "Combat state mismatch" with Tuning Fork: relic activation animations are no longer compared.
+
 ## 0.18.2-ts (talentshards branch)
 
 - Card choices during the forecast (e.g. the Knowledge Demon's curse) are simulated option by option and shown as a range instead of blocking it.

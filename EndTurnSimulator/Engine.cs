@@ -133,6 +133,9 @@ internal static class Engine
         // Each replay starts a fresh combat. v0.111 waits up to 10s for the previous combat's turn loop, which in
         // the worker stays suspended forever after teardown; that wait made every forecast miss its deadline.
         Patch("MegaCrit.Sts2.Core.Combat.CombatManager:WaitForPreviousTurnLoopToFinish", nameof(NoTurnLoopWait));
+        // Crusher and Rocket (Kaiser Crab boss) look up their background in the bestiary screen, a Godot node.
+        patches.Patch(AccessTools.PropertyGetter(typeof(MegaCrit.Sts2.Core.Nodes.Screens.Bestiary.NBestiary), "Instance"),
+            prefix: new HarmonyMethod(typeof(Engine), nameof(ReturnNullObject)));
         // Public beta: temporary sound effects go through a Godot node whose static setup needs native Godot.
         if (AccessTools.TypeByName("MegaCrit.Sts2.Core.Audio.Debug.NDebugAudioManager") is { } debugAudio)
             patches.Patch(AccessTools.PropertyGetter(debugAudio, "Instance"), prefix: new HarmonyMethod(typeof(Engine), nameof(ReturnNullObject)));

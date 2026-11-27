@@ -192,9 +192,8 @@ public static class SimulationProtocol
 
     private static bool IsPresentationOnlyScalar(AbstractModel model, FieldInfo field)
     {
-        // Happy Flower keeps this true for one second solely to animate its counter.
-        // Replay speed changes that timing, but TurnsSeen remains the gameplay state.
-        return (model is MegaCrit.Sts2.Core.Models.Relics.HappyFlower && field.Name == "_isActivating")
+        // Relics (Happy Flower, Tuning Fork...) keep _isActivating true for a moment solely to animate their counter.
+        return (model is RelicModel && field.Name == "_isActivating")
             // Sandpit only stores these for its sliding animation, skipped in TestMode.
             || (model is MegaCrit.Sts2.Core.Models.Powers.SandpitPower && field.Name is "_initialAmount" or "_initialTargetPosition");
     }
