@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.4-ts (talentshards branch)
+
+- Removed the Continuous background calculation setting: forecasts are calculated only when the preview is requested.
+
 ## 0.18.3-ts (talentshards branch)
 
 - Fixed the simulator crashing against the Kaiser Crab boss (Crusher/Rocket).

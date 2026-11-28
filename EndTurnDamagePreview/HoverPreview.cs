@@ -41,7 +41,7 @@ internal static class HoverPreview
             // Synchronizing the native state prevents the preview from remaining unavailable
             // until the pointer leaves and re-enters the button.
             hovered = owner.Get(NClickableControl.PropertyName.IsFocused).AsBool();
-            if (!PreviewConfig.ContinuousCalculation && !IsDisplayRequested()) return;
+            if (!IsDisplayRequested()) return;
             var player = LocalContext.GetMe(combat);
             if (player == null || !player.Creature.IsAlive || CombatManager.Instance.IsPlayerReadyToEndTurn(player)) return;
             SimulationClient.Prepare(combat);
