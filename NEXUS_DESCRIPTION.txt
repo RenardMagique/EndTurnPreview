@@ -1,0 +1,34 @@
+[center][size=6][color=#f2cc66][b]END TURN PREVIEW[/b][/color][/size]
+[i]See how your turn ends before you press End Turn.[/i][/center]
+
+[line]
+
+End Turn Preview simulates the rest of your turn with the game's own combat logic and shows the verified result on your HP and Block bars, pets included.
+
+[size=4][color=#f2cc66][b]Features[/b][/color][/size]
+[list]
+[*]Projected [color=#e06666][b]HP[/b][/color] and [color=#6fa8dc][b]Block[/b][/color] on the native health bars, including enemy actions, poison, healing and Block expiration.[/*]
+[*]A [color=#b48ee0]purple[/color] range when the result depends on hidden randomness or a choice.[/*]
+[*]Coop: every player's bar shows its own forecast.[/*]
+[*]Show it on End Turn hover, always, or while holding a shortcut.[/*]
+[*]No save changes. Unverifiable results are hidden, never guessed.[/*]
+[/list]
+
+[size=4][color=#f2cc66][b]Installation[/b][/color][/size]
+[list=1]
+[*]Install [b]BaseLib 3.4.8[/b]+ and the [b].NET 9 Runtime[/b].[/*]
+[*]Extract into [b]Slay the Spire 2/mods/[/b] so you get [b]mods/EndTurnDamagePreview/[/b] (with its [b]simulator[/b] subfolder).[/*]
+[*]Settings: [b]Settings > Mod Configuration > EndTurnDamagePreview[/b].[/*]
+[/list]
+
+[size=4][color=#f2cc66][b]Talent Shards Edition[/b][/color][/size]
+Playing with my other mod [url=https://www.nexusmods.com/slaythespire2/mods/TALENT_SHARDS_ID]Talent Shards[/url]? Download the optional [b]Talent Shards Edition[/b] file instead of the main one: it makes End Turn Preview work with it.
+
+[size=4][color=#f2cc66][b]Requirements[/b][/color][/size]
+Slay the Spire 2 [b]v0.111.1[/b]+ (stable or public beta), BaseLib 3.4.8+, .NET 9 Runtime. Windows x64 tested, Linux x64 experimental.
+
+[size=4][color=#f2cc66][b]Bug report[/b][/color][/size]
+If a preview is missing or wrong, close the game and send your [b]godot.log[/b] ([i]%APPDATA%\SlayTheSpire2\logs\[/i] on Windows, [i]~/.local/share/SlayTheSpire2/logs/[/i] on Linux) in a Nexus bug report or a [url=https://github.com/RenardMagique/EndTurnPreview/issues]GitHub issue[/url], with your mod list.
+
+[size=4][color=#f2cc66][b]Credits[/b][/color][/size]
+Created by [b]Renard Magique[/b]. Built with BaseLib. Helped by Sol 5.6 and REA.
