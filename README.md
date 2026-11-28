@@ -75,10 +75,9 @@ Open **Settings > Mod Configuration > EndTurnDamagePreview**.
 - **Simulation — Hover**: the preview appears while End Turn is hovered or focused. This is the default.
 - **Simulation — Always**: the preview remains visible throughout a valid player turn.
 - **Simulation — Disabled**: automatic display is disabled.
-- **Continuous background calculation**: disabled by default. When disabled, a new forecast is calculated only while the preview is requested by Hover, Always or the configured shortcut. Enable it to recalculate after every stable combat-state change.
 - **Simulation shortcut**: select the button, then press a keyboard key or mouse button. Hold that input during combat to reveal the preview immediately. Press Backspace or Delete while assigning to clear it, or Escape to cancel assignment.
 
-The shortcut can reveal the preview in any of the three modes, including **Disabled**. With continuous calculation enabled, display requests reveal the latest cached result. With it disabled, the request starts any calculation needed for the current state.
+The shortcut can reveal the preview in any of the three modes, including **Disabled**. A forecast is calculated only while the preview is requested.
 
 ## Safety and compatibility
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.1
+
+- Removed the Continuous background calculation setting: forecasts are calculated only when the preview is requested.
+
 ## 0.18.0
 
 - Coop support: every player's health bar shows its forecast, assuming all players end their turn now.
