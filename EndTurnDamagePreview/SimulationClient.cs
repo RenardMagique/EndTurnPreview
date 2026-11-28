@@ -192,14 +192,8 @@ internal static class SimulationClient
         // Only immutable bytes cross the process boundary; the live combat is never mutated.
         var request = new SimulationRequest(SimulationProtocol.Pack(replay), stamp, ModelIdSerializationCache.Hash,
             typeof(CombatState).Module.ModuleVersionId.ToString(), loadedMods.Any(mod => mod.Id == "BaseLib"), loadedMods, encounter,
-<<<<<<< HEAD
-            LocalNetId: MegaCrit.Sts2.Core.Context.LocalContext.NetId);
-=======
-            SimulationProtocol.IdTableNames.Select(name =>
-                HarmonyLib.AccessTools.StaticFieldRefAccess<List<string>>(typeof(ModelIdSerializationCache), "_netIdTo" + name + "NameMap").ToArray()).ToArray(),
-            MegaCrit.Sts2.Core.Context.LocalContext.NetId,
-            encounter != null && eventLayoutCombat);
->>>>>>> bd7745a (Undo the duplicate monster HP roll for combat-layout events (v0.18.6-ts))
+            LocalNetId: MegaCrit.Sts2.Core.Context.LocalContext.NetId,
+            EventLayoutCombat: encounter != null && eventLayoutCombat);
         computation = session == null
             ? Task.FromResult(Unavailable("Simulator unavailable"))
             : session.Simulate(JsonSerializer.Serialize(request));
