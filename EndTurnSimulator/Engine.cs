@@ -133,6 +133,8 @@ internal static class Engine
         // Each replay starts a fresh combat. v0.111 waits up to 10s for the previous combat's turn loop, which in
         // the worker stays suspended forever after teardown; that wait made every forecast miss its deadline.
         Patch("MegaCrit.Sts2.Core.Combat.CombatManager:WaitForPreviousTurnLoopToFinish", nameof(NoTurnLoopWait));
+        // Hover tips and icons load textures (e.g. Touch of Orobas -> Cracked Core -> orb icon) through native Godot.
+        Patch("MegaCrit.Sts2.Core.Assets.AssetCache:LoadAsset", nameof(NoAsset));
         // Crusher and Rocket (Kaiser Crab boss) look up their background in the bestiary screen, a Godot node.
         patches.Patch(AccessTools.PropertyGetter(typeof(MegaCrit.Sts2.Core.Nodes.Screens.Bestiary.NBestiary), "Instance"),
             prefix: new HarmonyMethod(typeof(Engine), nameof(ReturnNullObject)));
@@ -244,6 +246,7 @@ internal static class Engine
         }).ToArray();
         return (RunState)method.Invoke(null, args)!;
     }
+    private static bool NoAsset(ref Godot.Resource? __result) { __result = null; return false; }
     private static bool ReturnNullObject(ref object? __result) { __result = null; return false; }
     private static bool NoTurnLoopWait(ref Task __result) { __result = Task.CompletedTask; return false; }
 

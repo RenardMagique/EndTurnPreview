@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.2
+
+- Fixed the simulator crashing with Touch of Orobas (icons and textures are no longer loaded).
+
 ## 0.18.1
 
 - Removed the Continuous background calculation setting: forecasts are calculated only when the preview is requested.
