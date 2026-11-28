@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.3
+
+- Fixed "Combat state mismatch" in fights started from events that show the monster beforehand (e.g. The Lantern Key).
+
 ## 0.18.2
 
 - Fixed the simulator crashing with Touch of Orobas (icons and textures are no longer loaded).
