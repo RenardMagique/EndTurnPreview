@@ -22,7 +22,7 @@ End Turn Preview simulates the rest of your turn with the game's own combat logi
 [/list]
 
 [size=4][color=#f2cc66][b]Talent Shards Edition[/b][/color][/size]
-Playing with my other mod [url=https://www.nexusmods.com/slaythespire2/mods/TALENT_SHARDS_ID]Talent Shards[/url]? Download the optional [b]Talent Shards Edition[/b] file instead of the main one: it makes End Turn Preview work with it.
+Playing with my other mod [b][url=https://www.nexusmods.com/slaythespire2/mods/1606]Talent Shards[/url][/b]? Download the optional [b]Talent Shards Edition[/b] file instead of the main one: it makes End Turn Preview work with it.
 
 [size=4][color=#f2cc66][b]Requirements[/b][/color][/size]
 Slay the Spire 2 [b]v0.111.1[/b]+ (stable or public beta), BaseLib 3.4.8+, .NET 9 Runtime. Windows x64 tested, Linux x64 experimental.
