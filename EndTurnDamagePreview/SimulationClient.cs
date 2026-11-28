@@ -35,11 +35,12 @@ internal static class SimulationClient
     private static CombatReplay? eventAnchorSource;
     private static int eventAnchorEventCount;
     private static string? eventEncounter;
+    private static bool eventLayoutCombat;
 
     // Called just before an event option starts a combat. The game's replay began when the
     // event room was entered and does not contain event choices, so keep a snapshot of the run
     // at combat entry; it stays valid only while the game keeps the same replay object.
-    internal static void AnchorEventCombat(EncounterModel encounter)
+    internal static void AnchorEventCombat(EncounterModel encounter, bool layoutCombat)
     {
         try
         {
@@ -59,6 +60,7 @@ internal static class SimulationClient
             eventAnchorSource = live;
             eventAnchorEventCount = live.events.Count;
             eventEncounter = encounter.Id.ToString();
+            eventLayoutCombat = layoutCombat;
         }
         catch (Exception ex)
         {
@@ -192,7 +194,8 @@ internal static class SimulationClient
             typeof(CombatState).Module.ModuleVersionId.ToString(), loadedMods.Any(mod => mod.Id == "BaseLib"), loadedMods, encounter,
             SimulationProtocol.IdTableNames.Select(name =>
                 HarmonyLib.AccessTools.StaticFieldRefAccess<List<string>>(typeof(ModelIdSerializationCache), "_netIdTo" + name + "NameMap").ToArray()).ToArray(),
-            MegaCrit.Sts2.Core.Context.LocalContext.NetId);
+            MegaCrit.Sts2.Core.Context.LocalContext.NetId,
+            encounter != null && eventLayoutCombat);
         computation = session == null
             ? Task.FromResult(Unavailable("Simulator unavailable"))
             : session.Simulate(JsonSerializer.Serialize(request));
@@ -425,5 +428,6 @@ internal static class SimulationClient
 internal static class EventCombatAnchorPatch
 {
     // Positional argument: the parameter was renamed between game versions.
-    private static void Prefix(EncounterModel __0) => SimulationClient.AnchorEventCombat(__0);
+    private static void Prefix(EventModel __instance, EncounterModel __0) =>
+        SimulationClient.AnchorEventCombat(__0, __instance.LayoutType == MegaCrit.Sts2.Core.Events.EventLayoutType.Combat);
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.6-ts (talentshards branch)
+
+- Fixed "Combat state mismatch" in fights started from events that show the monster beforehand (e.g. The Lantern Key).
+
 ## 0.18.5-ts (talentshards branch)
 
 - Fixed the simulator crashing with Touch of Orobas (icons and textures are no longer loaded).

@@ -19,7 +19,9 @@ public sealed record SimulationRequest(string Replay, string Baseline, uint Mode
     // (e.g. Talent Shards) can make them differ from the worker's, which would misread the replay.
     string[][]? IdTables = null,
     // Coop: the local player's net ID. The top-level result fields describe this player.
-    ulong? LocalNetId = null);
+    ulong? LocalNetId = null,
+    // The event shows its fight before it starts (combat layout): the monsters, and their HP rolls, already exist.
+    bool EventLayoutCombat = false);
 public sealed record SimulatedPetState(
     int Index, string ModelId, int Hp, int Block, bool Alive,
     int MinHp, int MaxHp, int MinBlock, int MaxBlock);

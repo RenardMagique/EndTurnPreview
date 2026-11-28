@@ -525,7 +525,10 @@ internal static class Engine
                 // so enter that encounter directly instead of replaying the event.
                 if (state.VisitedMapCoords.Count > 0) state.ActFloor = state.VisitedMapCoords[^1].row + 1;
                 var encounter = ModelDb.GetById<EncounterModel>(ModelId.Deserialize(request.EventEncounter)).ToMutable();
+                // A combat-layout event created its monsters (rolling their HP) before the snapshot: undo the second roll.
+                var niche = state.Rng.Niche.ToSerializable();
                 await (Task)enterRoom.Invoke(run, [new CombatRoom(encounter, state), false])!;
+                if (request.EventLayoutCombat) state.Rng.Niche.LoadFromSerializable(niche);
             }
             foreach (var item in replay.events)
             {
