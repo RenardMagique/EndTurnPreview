@@ -135,6 +135,9 @@ internal static class Engine
         Patch("MegaCrit.Sts2.Core.Combat.CombatManager:WaitForPreviousTurnLoopToFinish", nameof(NoTurnLoopWait));
         // Hover tips and icons load textures (e.g. Touch of Orobas -> Cracked Core -> orb icon) through native Godot.
         Patch("MegaCrit.Sts2.Core.Assets.AssetCache:LoadAsset", nameof(NoAsset));
+        // Their BeforeDeath only plays audio (without a null check) and animations.
+        Patch("MegaCrit.Sts2.Core.Models.Monsters.Crusher:BeforeDeath", nameof(NoTurnLoopWait));
+        Patch("MegaCrit.Sts2.Core.Models.Monsters.Rocket:BeforeDeath", nameof(NoTurnLoopWait));
         // Crusher and Rocket (Kaiser Crab boss) look up their background in the bestiary screen, a Godot node.
         patches.Patch(AccessTools.PropertyGetter(typeof(MegaCrit.Sts2.Core.Nodes.Screens.Bestiary.NBestiary), "Instance"),
             prefix: new HarmonyMethod(typeof(Engine), nameof(ReturnNullObject)));

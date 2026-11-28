@@ -10,7 +10,7 @@ namespace EndTurnDamagePreview;
 public static class MainFile
 {
     public const string ModId = "EndTurnDamagePreview";
-    public const string Version = "v0.18.6-ts";
+    public const string Version = "v0.18.7-ts";
 
     public static void Initialize()
     {

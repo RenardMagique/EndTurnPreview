@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.7-ts (talentshards branch)
+
+- Fixed the simulator failing when a Kaiser Crab arm (Crusher or Rocket) dies.
+
 ## 0.18.6-ts (talentshards branch)
 
 - Fixed "Combat state mismatch" in fights started from events that show the monster beforehand (e.g. The Lantern Key).
